@@ -1,0 +1,688 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: yolo-object-detection-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-10-08T11:37:50.029382',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "YOLO Object Detection
+      Pipeline", "inputs": [{"default": "1", "name": "epochs", "optional": true, "type":
+      "Integer"}, {"default": "8", "name": "batch", "optional": true, "type": "Integer"},
+      {"default": "dataset", "name": "source_bucket", "optional": true}, {"default":
+      "42", "name": "random_state", "optional": true}, {"default": "yolov8n_custom.pt",
+      "name": "yolo_model_name", "optional": true}], "name": "YOLO Object Detection
+      Pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22}
+spec:
+  entrypoint: yolo-object-detection-pipeline
+  templates:
+  - name: download-dataset
+    container:
+      args: [--bucket-name, '{{inputs.parameters.source_bucket}}', --output, /tmp/outputs/output/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'requests' 'boto3' 'tqdm' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+        install --quiet --no-warn-script-location 'requests' 'boto3' 'tqdm' --user)
+        && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def download_dataset(bucket_name, output_file):
+            import boto3
+            import os
+            import requests
+            import tarfile
+            from tqdm import tqdm
+
+            url = "https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz"
+
+            output_dir = "DATASET"
+            downloaded_file = "DATASET.gz"
+
+            response = requests.get(url, stream=True)
+            file_size = int(response.headers.get("Content-Length", 0))
+            progress_bar = tqdm(total=file_size, unit="B", unit_scale=True)
+
+            with open(downloaded_file, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=1024):
+                    # Update the progress bar with the size of the downloaded chunk
+                    progress_bar.update(len(chunk))
+                    file.write(chunk)
+
+            # Open the tar archive
+            with tarfile.open(downloaded_file, 'r:gz') as tar:
+                # Extract all files from the archive
+                tar.extractall(output_dir)
+
+            minio_client = boto3.client(
+                's3',
+                endpoint_url='http://minio-service.kubeflow:9000',
+                aws_access_key_id='minio',
+                aws_secret_access_key='minio123'
+            )
+
+            try:
+                minio_client.create_bucket(Bucket=bucket_name)
+            except Exception as e:
+                # Bucket already created.
+                pass
+
+            for f in ["images", "labels"]:
+                local_dir_path = os.path.join(output_dir, "DATA", f)
+                files = os.listdir(local_dir_path)
+                for file in files:
+                    local_path = os.path.join(local_dir_path, file)
+                    s3_path = os.path.join(bucket_name, f, file)
+                    minio_client.upload_file(local_path, bucket_name, s3_path)
+
+            # Write the output file path to the output_file
+            with open(output_file, 'w') as file:
+                file.write(os.path.join(bucket_name))
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Download dataset', description='')
+        _parser.add_argument("--bucket-name", dest="bucket_name", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--output", dest="output_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = download_dataset(**_parsed_args)
+      image: python:3.7
+    inputs:
+      parameters:
+      - {name: source_bucket}
+    outputs:
+      artifacts:
+      - {name: download-dataset-output, path: /tmp/outputs/output/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--bucket-name", {"inputValue": "bucket_name"}, "--output", {"outputPath":
+          "output"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''requests'' ''boto3''
+          ''tqdm'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet
+          --no-warn-script-location ''requests'' ''boto3'' ''tqdm'' --user) && \"$0\"
+          \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def _make_parent_dirs_and_return_path(file_path:
+          str):\n    import os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
+          file_path\n\ndef download_dataset(bucket_name, output_file):\n    import
+          boto3\n    import os\n    import requests\n    import tarfile\n    from
+          tqdm import tqdm\n\n    url = \"https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz\"\n\n    output_dir
+          = \"DATASET\"\n    downloaded_file = \"DATASET.gz\"\n\n    response = requests.get(url,
+          stream=True)\n    file_size = int(response.headers.get(\"Content-Length\",
+          0))\n    progress_bar = tqdm(total=file_size, unit=\"B\", unit_scale=True)\n\n    with
+          open(downloaded_file, ''wb'') as file:\n        for chunk in response.iter_content(chunk_size=1024):\n            #
+          Update the progress bar with the size of the downloaded chunk\n            progress_bar.update(len(chunk))\n            file.write(chunk)\n\n    #
+          Open the tar archive\n    with tarfile.open(downloaded_file, ''r:gz'') as
+          tar:\n        # Extract all files from the archive\n        tar.extractall(output_dir)\n\n    minio_client
+          = boto3.client(\n        ''s3'',\n        endpoint_url=''http://minio-service.kubeflow:9000'',\n        aws_access_key_id=''minio'',\n        aws_secret_access_key=''minio123''\n    )\n\n    try:\n        minio_client.create_bucket(Bucket=bucket_name)\n    except
+          Exception as e:\n        # Bucket already created.\n        pass\n\n    for
+          f in [\"images\", \"labels\"]:\n        local_dir_path = os.path.join(output_dir,
+          \"DATA\", f)\n        files = os.listdir(local_dir_path)\n        for file
+          in files:\n            local_path = os.path.join(local_dir_path, file)\n            s3_path
+          = os.path.join(bucket_name, f, file)\n            minio_client.upload_file(local_path,
+          bucket_name, s3_path)\n\n    # Write the output file path to the output_file\n    with
+          open(output_file, ''w'') as file:\n        file.write(os.path.join(bucket_name))\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Download dataset'', description='''')\n_parser.add_argument(\"--bucket-name\",
+          dest=\"bucket_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--output\",
+          dest=\"output_file\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = download_dataset(**_parsed_args)\n"], "image": "python:3.7"}}, "inputs":
+          [{"name": "bucket_name", "type": "String"}], "name": "Download dataset",
+          "outputs": [{"name": "output", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket_name": "{{inputs.parameters.source_bucket}}"}'}
+  - name: split-dataset
+    container:
+      args: [--bucket-name, '{{inputs.parameters.source_bucket}}', --random-state,
+        '{{inputs.parameters.random_state}}', --x-train, /tmp/outputs/x_train/data,
+        --y-train, /tmp/outputs/y_train/data, --x-test, /tmp/outputs/x_test/data,
+        --y-test, /tmp/outputs/y_test/data, --x-val, /tmp/outputs/x_val/data, --y-val,
+        /tmp/outputs/y_val/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'minio' 'scikit-learn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'minio' 'scikit-learn' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def split_dataset(bucket_name,
+                          random_state,
+                          x_train_file,
+                          y_train_file,
+                          x_test_file,
+                          y_test_file,
+                          x_val_file,
+                          y_val_file):
+
+            from minio import Minio
+            from minio.error import S3Error
+
+            def list_objects_with_prefix(minio_client, bucket_name, prefix):
+                try:
+                    objects = minio_client.list_objects(bucket_name, prefix=prefix, recursive=True)
+                    return [obj.object_name for obj in objects]
+                except S3Error as err:
+                    print(f"Error listing objects with prefix '{prefix}' in bucket '{bucket_name}': {err}")
+
+            minio_client = Minio(
+                'minio-service.kubeflow:9000',
+                access_key='minio',
+                secret_key='minio123',
+                secure=False
+            )
+
+            images = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/images")
+            labels = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/labels")
+
+            from sklearn.model_selection import train_test_split
+
+            train_ratio = 0.75
+            validation_ratio = 0.15
+            test_ratio = 0.10
+
+            # train is now 75% of the entire data set
+            x_train, x_test, y_train, y_test = train_test_split(images, labels,
+                                                                test_size=1 - train_ratio,
+                                                                random_state=random_state)
+
+            # test is now 10% of the initial data set
+            # validation is now 15% of the initial data set
+            x_val, x_test, y_val, y_test = train_test_split(x_test, y_test,
+                                                            test_size=test_ratio / (test_ratio + validation_ratio),
+                                                            random_state=random_state)
+
+            with open(x_train_file, "w") as f:
+                f.writelines(line + '\n' for line in x_train)
+
+            with open(y_train_file, "w") as f:
+                f.writelines(line + '\n' for line in y_train)
+
+            with open(x_test_file, "w") as f:
+                f.writelines(line + '\n' for line in x_test)
+
+            with open(y_test_file, "w") as f:
+                f.writelines(line + '\n' for line in y_test)
+
+            with open(x_val_file, "w") as f:
+                f.writelines(line + '\n' for line in x_val)
+
+            with open(y_val_file, "w") as f:
+                f.writelines(line + '\n' for line in y_val)
+
+            print(len(x_train))
+            print(len(x_val))
+            print(len(x_test))
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Split dataset', description='')
+        _parser.add_argument("--bucket-name", dest="bucket_name", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--random-state", dest="random_state", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-train", dest="x_train_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-train", dest="y_train_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-test", dest="x_test_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-test", dest="y_test_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-val", dest="x_val_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-val", dest="y_val_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = split_dataset(**_parsed_args)
+      image: python:3.7
+    inputs:
+      parameters:
+      - {name: random_state}
+      - {name: source_bucket}
+    outputs:
+      artifacts:
+      - {name: split-dataset-x_test, path: /tmp/outputs/x_test/data}
+      - {name: split-dataset-x_train, path: /tmp/outputs/x_train/data}
+      - {name: split-dataset-x_val, path: /tmp/outputs/x_val/data}
+      - {name: split-dataset-y_test, path: /tmp/outputs/y_test/data}
+      - {name: split-dataset-y_train, path: /tmp/outputs/y_train/data}
+      - {name: split-dataset-y_val, path: /tmp/outputs/y_val/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--bucket-name", {"inputValue": "bucket_name"}, "--random-state",
+          {"inputValue": "random_state"}, "--x-train", {"outputPath": "x_train"},
+          "--y-train", {"outputPath": "y_train"}, "--x-test", {"outputPath": "x_test"},
+          "--y-test", {"outputPath": "y_test"}, "--x-val", {"outputPath": "x_val"},
+          "--y-val", {"outputPath": "y_val"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''minio'' ''scikit-learn''
+          || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''minio'' ''scikit-learn'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
+          exist_ok=True)\n    return file_path\n\ndef split_dataset(bucket_name,\n                  random_state,\n                  x_train_file,\n                  y_train_file,\n                  x_test_file,\n                  y_test_file,\n                  x_val_file,\n                  y_val_file):\n\n    from
+          minio import Minio\n    from minio.error import S3Error\n\n    def list_objects_with_prefix(minio_client,
+          bucket_name, prefix):\n        try:\n            objects = minio_client.list_objects(bucket_name,
+          prefix=prefix, recursive=True)\n            return [obj.object_name for
+          obj in objects]\n        except S3Error as err:\n            print(f\"Error
+          listing objects with prefix ''{prefix}'' in bucket ''{bucket_name}'': {err}\")\n\n    minio_client
+          = Minio(\n        ''minio-service.kubeflow:9000'',\n        access_key=''minio'',\n        secret_key=''minio123'',\n        secure=False\n    )\n\n    images
+          = list_objects_with_prefix(minio_client, bucket_name, prefix=f\"{bucket_name}/images\")\n    labels
+          = list_objects_with_prefix(minio_client, bucket_name, prefix=f\"{bucket_name}/labels\")\n\n    from
+          sklearn.model_selection import train_test_split\n\n    train_ratio = 0.75\n    validation_ratio
+          = 0.15\n    test_ratio = 0.10\n\n    # train is now 75% of the entire data
+          set\n    x_train, x_test, y_train, y_test = train_test_split(images, labels,\n                                                        test_size=1
+          - train_ratio,\n                                                        random_state=random_state)\n\n    #
+          test is now 10% of the initial data set\n    # validation is now 15% of
+          the initial data set\n    x_val, x_test, y_val, y_test = train_test_split(x_test,
+          y_test,\n                                                    test_size=test_ratio
+          / (test_ratio + validation_ratio),\n                                                    random_state=random_state)\n\n    with
+          open(x_train_file, \"w\") as f:\n        f.writelines(line + ''\\n'' for
+          line in x_train)\n\n    with open(y_train_file, \"w\") as f:\n        f.writelines(line
+          + ''\\n'' for line in y_train)\n\n    with open(x_test_file, \"w\") as f:\n        f.writelines(line
+          + ''\\n'' for line in x_test)\n\n    with open(y_test_file, \"w\") as f:\n        f.writelines(line
+          + ''\\n'' for line in y_test)\n\n    with open(x_val_file, \"w\") as f:\n        f.writelines(line
+          + ''\\n'' for line in x_val)\n\n    with open(y_val_file, \"w\") as f:\n        f.writelines(line
+          + ''\\n'' for line in y_val)\n\n    print(len(x_train))\n    print(len(x_val))\n    print(len(x_test))\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Split dataset'', description='''')\n_parser.add_argument(\"--bucket-name\",
+          dest=\"bucket_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--random-state\",
+          dest=\"random_state\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-train\",
+          dest=\"x_train_file\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-train\", dest=\"y_train_file\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-test\",
+          dest=\"x_test_file\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-test\", dest=\"y_test_file\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-val\",
+          dest=\"x_val_file\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-val\", dest=\"y_val_file\",
+          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = split_dataset(**_parsed_args)\n"],
+          "image": "python:3.7"}}, "inputs": [{"name": "bucket_name", "type": "String"},
+          {"name": "random_state", "type": "Integer"}], "name": "Split dataset", "outputs":
+          [{"name": "x_train", "type": "String"}, {"name": "y_train", "type": "String"},
+          {"name": "x_test", "type": "String"}, {"name": "y_test", "type": "String"},
+          {"name": "x_val", "type": "String"}, {"name": "y_val", "type": "String"}]}',
+        pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"bucket_name":
+          "{{inputs.parameters.source_bucket}}", "random_state": "{{inputs.parameters.random_state}}"}'}
+  - name: train-model
+    container:
+      args: [--epochs, '{{inputs.parameters.epochs}}', --batch, '{{inputs.parameters.batch}}',
+        --source-bucket, dataset, --x-train, /tmp/inputs/x_train/data, --y-train,
+        /tmp/inputs/y_train/data, --x-test, /tmp/inputs/x_test/data, --y-test, /tmp/inputs/y_test/data,
+        --x-val, /tmp/inputs/x_val/data, --y-val, /tmp/inputs/y_val/data, --yolo-model-name,
+        yolov8n_custom.pt, --project, /tmp/outputs/project/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'minio' 'tqdm' 'pyyaml' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+        install --quiet --no-warn-script-location 'minio' 'tqdm' 'pyyaml' --user)
+        && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def train_model(epochs,
+                        batch,
+                        source_bucket,
+                        x_train_file,
+                        y_train_file,
+                        x_test_file,
+                        y_test_file,
+                        x_val_file,
+                        y_val_file,
+                        project_path,
+                        yolo_model_name = "yolov8n_custom.pt"):
+            from minio import Minio
+            from minio.error import S3Error
+            from tqdm import tqdm
+            import os
+            import yaml
+
+            def download_from_minio(source_bucket, source_object, minio_client, download_path):
+                try:
+                    # Download the file from MinIO
+                    minio_client.fget_object(source_bucket, source_object, download_path)
+                except S3Error as err:
+                    print(f"Error downloading {source_object}: {err}")
+
+            minio_client = Minio(
+                'minio-service.kubeflow:9000',
+                access_key='minio',
+                secret_key='minio123',
+                secure=False
+            )
+
+            # Create local directories.
+            for splits in ["train", "test", "val"]:
+                for x in ["images", "labels"]:
+                    os.makedirs(f"/dataset/{splits}/{x}", exist_ok=True)
+
+            Xs = [x_train_file, x_test_file, x_val_file]
+            Ys = [y_train_file, y_test_file, y_val_file]
+
+            for i, splits in enumerate(["train", "test", "val"]):
+                # Download image
+                with open(Xs[i], "r") as f:
+                    for source_object in tqdm(f.readlines()):
+                        source_object = source_object.strip()
+                        download_path = f"/dataset/{splits}/images/{os.path.basename(source_object)}"
+                        download_from_minio(source_bucket, source_object, minio_client, download_path)
+                        print(download_path)
+
+                # Download label
+                with open(Ys[i], "r") as f:
+                    for source_object in f.readlines():
+                        source_object = source_object.strip()
+                        download_path = f"/dataset/{splits}/labels/{os.path.basename(source_object)}"
+                        download_from_minio(source_bucket, source_object, minio_client, download_path)
+                        print(download_path)
+
+            data = {
+                'path': '/dataset/',
+                'train': 'train/images',
+                'val': 'val/images',
+                'test': 'test/images',
+                'names': {
+                    0: 'id_card'
+                }
+            }
+
+            file_path = 'custom_data.yaml'
+            try:
+                with open(file_path, 'w') as file:
+                    yaml.dump(data, file)
+                print("YAML file has been written successfully.")
+            except Exception as e:
+                print(f"Error writing YAML file: {e}")
+
+            from ultralytics import YOLO
+            model = YOLO('yolov8n.pt')
+            results = model.train(
+                data='custom_data.yaml',
+                imgsz=640,
+                epochs=epochs,
+                batch=batch,
+                project=project_path,
+                name=yolo_model_name,
+            )
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Train model', description='')
+        _parser.add_argument("--epochs", dest="epochs", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--batch", dest="batch", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--source-bucket", dest="source_bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-train", dest="x_train_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-train", dest="y_train_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-test", dest="x_test_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-test", dest="y_test_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--x-val", dest="x_val_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--y-val", dest="y_val_file", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--yolo-model-name", dest="yolo_model_name", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("--project", dest="project_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = train_model(**_parsed_args)
+      image: ultralytics/ultralytics:latest
+    inputs:
+      parameters:
+      - {name: batch}
+      - {name: epochs}
+      artifacts:
+      - {name: split-dataset-x_test, path: /tmp/inputs/x_test/data}
+      - {name: split-dataset-x_train, path: /tmp/inputs/x_train/data}
+      - {name: split-dataset-x_val, path: /tmp/inputs/x_val/data}
+      - {name: split-dataset-y_test, path: /tmp/inputs/y_test/data}
+      - {name: split-dataset-y_train, path: /tmp/inputs/y_train/data}
+      - {name: split-dataset-y_val, path: /tmp/inputs/y_val/data}
+    outputs:
+      parameters:
+      - name: train-model-project
+        valueFrom: {path: /tmp/outputs/project/data}
+      artifacts:
+      - {name: train-model-project, path: /tmp/outputs/project/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--epochs", {"inputValue": "epochs"}, "--batch", {"inputValue":
+          "batch"}, "--source-bucket", {"inputValue": "source_bucket"}, "--x-train",
+          {"inputPath": "x_train"}, "--y-train", {"inputPath": "y_train"}, "--x-test",
+          {"inputPath": "x_test"}, "--y-test", {"inputPath": "y_test"}, "--x-val",
+          {"inputPath": "x_val"}, "--y-val", {"inputPath": "y_val"}, {"if": {"cond":
+          {"isPresent": "yolo_model_name"}, "then": ["--yolo-model-name", {"inputValue":
+          "yolo_model_name"}]}}, "--project", {"outputPath": "project"}], "command":
+          ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet
+          --no-warn-script-location ''minio'' ''tqdm'' ''pyyaml'' || PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''minio'' ''tqdm''
+          ''pyyaml'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
+          exist_ok=True)\n    return file_path\n\ndef train_model(epochs,\n                batch,\n                source_bucket,\n                x_train_file,\n                y_train_file,\n                x_test_file,\n                y_test_file,\n                x_val_file,\n                y_val_file,\n                project_path,\n                yolo_model_name
+          = \"yolov8n_custom.pt\"):\n    from minio import Minio\n    from minio.error
+          import S3Error\n    from tqdm import tqdm\n    import os\n    import yaml\n\n    def
+          download_from_minio(source_bucket, source_object, minio_client, download_path):\n        try:\n            #
+          Download the file from MinIO\n            minio_client.fget_object(source_bucket,
+          source_object, download_path)\n        except S3Error as err:\n            print(f\"Error
+          downloading {source_object}: {err}\")\n\n    minio_client = Minio(\n        ''minio-service.kubeflow:9000'',\n        access_key=''minio'',\n        secret_key=''minio123'',\n        secure=False\n    )\n\n    #
+          Create local directories.\n    for splits in [\"train\", \"test\", \"val\"]:\n        for
+          x in [\"images\", \"labels\"]:\n            os.makedirs(f\"/dataset/{splits}/{x}\",
+          exist_ok=True)\n\n    Xs = [x_train_file, x_test_file, x_val_file]\n    Ys
+          = [y_train_file, y_test_file, y_val_file]\n\n    for i, splits in enumerate([\"train\",
+          \"test\", \"val\"]):\n        # Download image\n        with open(Xs[i],
+          \"r\") as f:\n            for source_object in tqdm(f.readlines()):\n                source_object
+          = source_object.strip()\n                download_path = f\"/dataset/{splits}/images/{os.path.basename(source_object)}\"\n                download_from_minio(source_bucket,
+          source_object, minio_client, download_path)\n                print(download_path)\n\n        #
+          Download label\n        with open(Ys[i], \"r\") as f:\n            for source_object
+          in f.readlines():\n                source_object = source_object.strip()\n                download_path
+          = f\"/dataset/{splits}/labels/{os.path.basename(source_object)}\"\n                download_from_minio(source_bucket,
+          source_object, minio_client, download_path)\n                print(download_path)\n\n    data
+          = {\n        ''path'': ''/dataset/'',\n        ''train'': ''train/images'',\n        ''val'':
+          ''val/images'',\n        ''test'': ''test/images'',\n        ''names'':
+          {\n            0: ''id_card''\n        }\n    }\n\n    file_path = ''custom_data.yaml''\n    try:\n        with
+          open(file_path, ''w'') as file:\n            yaml.dump(data, file)\n        print(\"YAML
+          file has been written successfully.\")\n    except Exception as e:\n        print(f\"Error
+          writing YAML file: {e}\")\n\n    from ultralytics import YOLO\n    model
+          = YOLO(''yolov8n.pt'')\n    results = model.train(\n        data=''custom_data.yaml'',\n        imgsz=640,\n        epochs=epochs,\n        batch=batch,\n        project=project_path,\n        name=yolo_model_name,\n    )\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Train model'', description='''')\n_parser.add_argument(\"--epochs\",
+          dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--batch\",
+          dest=\"batch\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--source-bucket\",
+          dest=\"source_bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-train\",
+          dest=\"x_train_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-train\",
+          dest=\"y_train_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-test\",
+          dest=\"x_test_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-test\",
+          dest=\"y_test_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-val\",
+          dest=\"x_val_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-val\",
+          dest=\"y_val_file\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--yolo-model-name\",
+          dest=\"yolo_model_name\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"--project\",
+          dest=\"project_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = train_model(**_parsed_args)\n"], "image": "ultralytics/ultralytics:latest"}},
+          "inputs": [{"name": "epochs", "type": "Integer"}, {"name": "batch", "type":
+          "Integer"}, {"name": "source_bucket", "type": "String"}, {"name": "x_train",
+          "type": "String"}, {"name": "y_train", "type": "String"}, {"name": "x_test",
+          "type": "String"}, {"name": "y_test", "type": "String"}, {"name": "x_val",
+          "type": "String"}, {"name": "y_val", "type": "String"}, {"default": "yolov8n_custom.pt",
+          "name": "yolo_model_name", "optional": true, "type": "String"}], "name":
+          "Train model", "outputs": [{"name": "project", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"batch": "{{inputs.parameters.batch}}",
+          "epochs": "{{inputs.parameters.epochs}}", "source_bucket": "dataset", "yolo_model_name":
+          "yolov8n_custom.pt"}'}
+  - name: validate-model
+    container:
+      args: [--project-path, '{{inputs.parameters.train-model-project}}', --yolo-model-name,
+        '{{inputs.parameters.yolo_model_name}}', --mlpipeline-metrics, /tmp/outputs/mlpipeline_metrics/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def _make_parent_dirs_and_return_path(file_path: str):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+
+        def validate_model(project_path,
+                           yolo_model_name,
+                           mlpipeline_metrics_path):
+            from ultralytics import YOLO
+            import json
+            import os
+
+            weights_path = os.path.join(project_path, yolo_model_name, "weights", "best.pt")
+            print(f"Loading weights at: {weights_path}")
+
+            model = YOLO(weights_path)
+
+            metrics = model.val()
+            metrics_dict = {
+                "metrics": [
+                    {
+                        "name": "map50-95",
+                        "numberValue": metrics.box.map,
+                        "format": "RAW",
+                    },
+                    {
+                        "name": "map50",
+                        "numberValue": metrics.box.map50,
+                        "format": "RAW",
+                    },
+                    {
+                        "name": "map75",
+                        "numberValue": metrics.box.map75,
+                        "format": "RAW",
+                    }]
+            }
+
+            with open(mlpipeline_metrics_path, "w") as f:
+                json.dump(metrics_dict, f)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Validate model', description='')
+        _parser.add_argument("--project-path", dest="project_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--yolo-model-name", dest="yolo_model_name", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mlpipeline-metrics", dest="mlpipeline_metrics_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = validate_model(**_parsed_args)
+      image: ultralytics/ultralytics:latest
+    inputs:
+      parameters:
+      - {name: train-model-project}
+      - {name: yolo_model_name}
+    outputs:
+      artifacts:
+      - {name: mlpipeline-metrics, path: /tmp/outputs/mlpipeline_metrics/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--project-path", {"inputValue": "project_path"}, "--yolo-model-name",
+          {"inputValue": "yolo_model_name"}, "--mlpipeline-metrics", {"outputPath":
+          "mlpipeline_metrics"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
+          exist_ok=True)\n    return file_path\n\ndef validate_model(project_path,\n                   yolo_model_name,\n                   mlpipeline_metrics_path):\n    from
+          ultralytics import YOLO\n    import json\n    import os\n\n    weights_path
+          = os.path.join(project_path, yolo_model_name, \"weights\", \"best.pt\")\n    print(f\"Loading
+          weights at: {weights_path}\")\n\n    model = YOLO(weights_path)\n\n    metrics
+          = model.val()\n    metrics_dict = {\n        \"metrics\": [\n            {\n                \"name\":
+          \"map50-95\",\n                \"numberValue\": metrics.box.map,\n                \"format\":
+          \"RAW\",\n            },\n            {\n                \"name\": \"map50\",\n                \"numberValue\":
+          metrics.box.map50,\n                \"format\": \"RAW\",\n            },\n            {\n                \"name\":
+          \"map75\",\n                \"numberValue\": metrics.box.map75,\n                \"format\":
+          \"RAW\",\n            }]\n    }\n\n    with open(mlpipeline_metrics_path,
+          \"w\") as f:\n        json.dump(metrics_dict, f)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Validate model'', description='''')\n_parser.add_argument(\"--project-path\",
+          dest=\"project_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--yolo-model-name\",
+          dest=\"yolo_model_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mlpipeline-metrics\",
+          dest=\"mlpipeline_metrics_path\", type=_make_parent_dirs_and_return_path,
+          required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = validate_model(**_parsed_args)\n"], "image": "ultralytics/ultralytics:latest"}},
+          "inputs": [{"name": "project_path", "type": "String"}, {"name": "yolo_model_name",
+          "type": "String"}], "name": "Validate model", "outputs": [{"name": "mlpipeline_metrics",
+          "type": "Metrics"}]}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"project_path":
+          "{{inputs.parameters.train-model-project}}", "yolo_model_name": "{{inputs.parameters.yolo_model_name}}"}'}
+  - name: yolo-object-detection-pipeline
+    inputs:
+      parameters:
+      - {name: batch}
+      - {name: epochs}
+      - {name: random_state}
+      - {name: source_bucket}
+      - {name: yolo_model_name}
+    dag:
+      tasks:
+      - name: download-dataset
+        template: download-dataset
+        arguments:
+          parameters:
+          - {name: source_bucket, value: '{{inputs.parameters.source_bucket}}'}
+      - name: split-dataset
+        template: split-dataset
+        dependencies: [download-dataset]
+        arguments:
+          parameters:
+          - {name: random_state, value: '{{inputs.parameters.random_state}}'}
+          - {name: source_bucket, value: '{{inputs.parameters.source_bucket}}'}
+      - name: train-model
+        template: train-model
+        dependencies: [split-dataset]
+        arguments:
+          parameters:
+          - {name: batch, value: '{{inputs.parameters.batch}}'}
+          - {name: epochs, value: '{{inputs.parameters.epochs}}'}
+          artifacts:
+          - {name: split-dataset-x_test, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-x_test}}'}
+          - {name: split-dataset-x_train, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-x_train}}'}
+          - {name: split-dataset-x_val, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-x_val}}'}
+          - {name: split-dataset-y_test, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-y_test}}'}
+          - {name: split-dataset-y_train, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-y_train}}'}
+          - {name: split-dataset-y_val, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-y_val}}'}
+      - name: validate-model
+        template: validate-model
+        dependencies: [train-model]
+        arguments:
+          parameters:
+          - {name: train-model-project, value: '{{tasks.train-model.outputs.parameters.train-model-project}}'}
+          - {name: yolo_model_name, value: '{{inputs.parameters.yolo_model_name}}'}
+  arguments:
+    parameters:
+    - {name: epochs, value: '1'}
+    - {name: batch, value: '8'}
+    - {name: source_bucket, value: dataset}
+    - {name: random_state, value: '42'}
+    - {name: yolo_model_name, value: yolov8n_custom.pt}
+  serviceAccountName: pipeline-runner
