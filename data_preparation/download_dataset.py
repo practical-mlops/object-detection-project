@@ -8,10 +8,12 @@ def download_dataset(bucket_name: str, output_file: OutputPath(str)):
     import tarfile
     from tqdm import tqdm
 
+    # FULL Dataset
     url = "https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz"
 
     output_dir = "DATASET"
     downloaded_file = "DATASET.gz"
+    output_folder = "DATA"
 
     response = requests.get(url, stream=True)
     file_size = int(response.headers.get("Content-Length", 0))
@@ -42,7 +44,7 @@ def download_dataset(bucket_name: str, output_file: OutputPath(str)):
         pass
 
     for f in ["images", "labels"]:
-        local_dir_path = os.path.join(output_dir, "DATA", f)
+        local_dir_path = os.path.join(output_dir, output_folder, f)
         files = os.listdir(local_dir_path)
         for file in files:
             local_path = os.path.join(local_dir_path, file)

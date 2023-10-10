@@ -1,9 +1,11 @@
+
 from kfp.components import InputPath, OutputPath
 
 
 def train_model(epochs: int,
                 batch: int,
                 source_bucket: str,
+                yolo_model_name: str,
                 x_train_file: InputPath(str),
                 y_train_file: InputPath(str),
                 x_test_file: InputPath(str),
@@ -11,7 +13,7 @@ def train_model(epochs: int,
                 x_val_file: InputPath(str),
                 y_val_file: InputPath(str),
                 project_path: OutputPath(str),
-                yolo_model_name: str = "yolov8n_custom.pt"):
+                data_yaml_path: OutputPath(str)):
     from minio import Minio
     from minio.error import S3Error
     from tqdm import tqdm
@@ -47,7 +49,6 @@ def train_model(epochs: int,
                 source_object = source_object.strip()
                 download_path = f"/dataset/{splits}/images/{os.path.basename(source_object)}"
                 download_from_minio(source_bucket, source_object, minio_client, download_path)
-                print(download_path)
 
         # Download label
         with open(Ys[i], "r") as f:
@@ -55,7 +56,6 @@ def train_model(epochs: int,
                 source_object = source_object.strip()
                 download_path = f"/dataset/{splits}/labels/{os.path.basename(source_object)}"
                 download_from_minio(source_bucket, source_object, minio_client, download_path)
-                print(download_path)
 
     data = {
         'path': '/dataset/',
@@ -67,22 +67,28 @@ def train_model(epochs: int,
         }
     }
 
-    file_path = 'custom_data.yaml'
+    data_yaml_full_path = os.path.join(data_yaml_path, "data.yaml")
+    from pathlib import Path
+    Path(data_yaml_path).mkdir(parents=True, exist_ok=True)
+
     try:
-        with open(file_path, 'w') as file:
+        with open(data_yaml_full_path, 'w') as file:
             yaml.dump(data, file)
         print("YAML file has been written successfully.")
     except Exception as e:
         print(f"Error writing YAML file: {e}")
 
     from ultralytics import YOLO
+
     model = YOLO('yolov8n.pt')
+
     results = model.train(
-        data='custom_data.yaml',
+        data=data_yaml_full_path,
         imgsz=640,
         epochs=epochs,
         batch=batch,
         project=project_path,
         name=yolo_model_name,
-    )
+   )
+
 

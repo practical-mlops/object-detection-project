@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: yolo-object-detection-pipeline-
-  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-10-08T11:32:52.068873',
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-10-08T16:41:58.027822',
     pipelines.kubeflow.org/pipeline_spec: '{"description": "YOLO Object Detection
       Pipeline", "inputs": [{"default": "1", "name": "epochs", "optional": true, "type":
       "Integer"}, {"default": "8", "name": "batch", "optional": true, "type": "Integer"},
@@ -327,7 +327,7 @@ spec:
         --source-bucket, dataset, --x-train, /tmp/inputs/x_train/data, --y-train,
         /tmp/inputs/y_train/data, --x-test, /tmp/inputs/x_test/data, --y-test, /tmp/inputs/y_test/data,
         --x-val, /tmp/inputs/x_val/data, --y-val, /tmp/inputs/y_val/data, --yolo-model-name,
-        yolov8n_custom.pt, --project, /tmp/outputs/project/data]
+        yolov8n_custom, --project, /tmp/outputs/project/data]
       command:
       - sh
       - -c
@@ -357,7 +357,7 @@ spec:
                         x_val_file,
                         y_val_file,
                         project_path,
-                        yolo_model_name = "yolov8n_custom.pt"):
+                        yolo_model_name = "yolov8n_custom"):
             from minio import Minio
             from minio.error import S3Error
             from tqdm import tqdm
@@ -486,7 +486,7 @@ spec:
           \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
           "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
           exist_ok=True)\n    return file_path\n\ndef train_model(epochs,\n                batch,\n                source_bucket,\n                x_train_file,\n                y_train_file,\n                x_test_file,\n                y_test_file,\n                x_val_file,\n                y_val_file,\n                project_path,\n                yolo_model_name
-          = \"yolov8n_custom.pt\"):\n    from minio import Minio\n    from minio.error
+          = \"yolov8n_custom\"):\n    from minio import Minio\n    from minio.error
           import S3Error\n    from tqdm import tqdm\n    import os\n    import yaml\n\n    def
           download_from_minio(source_bucket, source_object, minio_client, download_path):\n        try:\n            #
           Download the file from MinIO\n            minio_client.fget_object(source_bucket,
@@ -529,12 +529,12 @@ spec:
           "Integer"}, {"name": "source_bucket", "type": "String"}, {"name": "x_train",
           "type": "String"}, {"name": "y_train", "type": "String"}, {"name": "x_test",
           "type": "String"}, {"name": "y_test", "type": "String"}, {"name": "x_val",
-          "type": "String"}, {"name": "y_val", "type": "String"}, {"default": "yolov8n_custom.pt",
+          "type": "String"}, {"name": "y_val", "type": "String"}, {"default": "yolov8n_custom",
           "name": "yolo_model_name", "optional": true, "type": "String"}], "name":
           "Train model", "outputs": [{"name": "project", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
         pipelines.kubeflow.org/arguments.parameters: '{"batch": "{{inputs.parameters.batch}}",
           "epochs": "{{inputs.parameters.epochs}}", "source_bucket": "dataset", "yolo_model_name":
-          "yolov8n_custom.pt"}'}
+          "yolov8n_custom"}'}
   - name: validate-model
     container:
       args: [--project-path, '{{inputs.parameters.train-model-project}}', --yolo-model-name,
