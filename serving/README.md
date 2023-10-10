@@ -1,0 +1,3 @@
+```commandline
+% bentoml build
+```
