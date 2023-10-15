@@ -1,34 +1,12 @@
-from kfp.components import OutputPath
+def split_dataset(random_state: int):
 
+    import os
+    import glob
+    from tqdm import tqdm
+    import shutil
 
-def split_dataset(bucket_name: str,
-                  random_state: int,
-                  x_train_file: OutputPath(str),
-                  y_train_file: OutputPath(str),
-                  x_test_file: OutputPath(str),
-                  y_test_file: OutputPath(str),
-                  x_val_file: OutputPath(str),
-                  y_val_file: OutputPath(str)):
-
-    from minio import Minio
-    from minio.error import S3Error
-
-    def list_objects_with_prefix(minio_client, bucket_name, prefix):
-        try:
-            objects = minio_client.list_objects(bucket_name, prefix=prefix, recursive=True)
-            return [obj.object_name for obj in objects]
-        except S3Error as err:
-            print(f"Error listing objects with prefix '{prefix}' in bucket '{bucket_name}': {err}")
-
-    minio_client = Minio(
-        'minio-service.kubeflow:9000',
-        access_key='minio',
-        secret_key='minio123',
-        secure=False
-    )
-
-    images = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/images")
-    labels = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/labels")
+    images = list(glob.glob(os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "images", "**")))
+    labels = list(glob.glob(os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "labels", "**")))
 
     from sklearn.model_selection import train_test_split
 
@@ -47,24 +25,41 @@ def split_dataset(bucket_name: str,
                                                     test_size=test_ratio / (test_ratio + validation_ratio),
                                                     random_state=random_state)
 
-    with open(x_train_file, "w") as f:
-        f.writelines(line + '\n' for line in x_train)
+    for splits in ["train", "test", "val"]:
+        for x in ["images", "labels"]:
+            os.makedirs(os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", splits, x))
 
-    with open(y_train_file, "w") as f:
-        f.writelines(line + '\n' for line in y_train)
+    for source_object in x_train:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "train", "images", os.path.basename(source_object))
+        shutil.move(src, dest)
 
-    with open(x_test_file, "w") as f:
-        f.writelines(line + '\n' for line in x_test)
+    for source_object in x_test:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "test", "images",
+                            os.path.basename(source_object))
+        shutil.move(src, dest)
 
-    with open(y_test_file, "w") as f:
-        f.writelines(line + '\n' for line in y_test)
+    for source_object in x_val:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "val", "images",
+                            os.path.basename(source_object))
+        shutil.move(src, dest)
 
-    with open(x_val_file, "w") as f:
-        f.writelines(line + '\n' for line in x_val)
+    for source_object in y_train:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "train", "labels",
+                            os.path.basename(source_object))
+        shutil.move(src, dest)
 
-    with open(y_val_file, "w") as f:
-        f.writelines(line + '\n' for line in y_val)
+    for source_object in y_test:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "test", "labels",
+                            os.path.basename(source_object))
+        shutil.move(src, dest)
 
-    print(len(x_train))
-    print(len(x_val))
-    print(len(x_test))
+    for source_object in y_val:
+        src = source_object.strip()
+        dest = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "val", "labels",
+                            os.path.basename(source_object))
+        shutil.move(src, dest)

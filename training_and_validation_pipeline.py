@@ -14,7 +14,7 @@ download_task = comp.create_component_from_func(
 
 split_dataset_task = comp.create_component_from_func(
     split_dataset,
-    packages_to_install=["minio", "scikit-learn"])
+    packages_to_install=["minio", "scikit-learn", "tqdm"])
 
 train_model_task = comp.create_component_from_func(
     train_model,
@@ -30,45 +30,42 @@ validate_model_task = comp.create_component_from_func(
 @dsl.pipeline(name="YOLO Object Detection Pipeline", description="YOLO Object Detection Pipeline")
 def pipeline(epochs: int = 1,
              batch: int = 8,
-             source_bucket="dataset",
              random_state: int = 42,
              yolo_model_name: str = "yolov8n_custom"):
-
-    # download_op = download_task(bucket_name=source_bucket)
-
-    # split_dataset_op = split_dataset_task(bucket_name=source_bucket,
-    #                                       random_state=random_state).after(download_op)
 
     volume_op = dsl.VolumeOp(
         name="Create PVC",
         resource_name="pipeline-pvc",
         modes=dsl.VOLUME_MODE_RWO,
-        size="1Gi",
+        size="20Gi",
     )
 
-    split_dataset_op = split_dataset_task(bucket_name=source_bucket,
-                                          random_state=random_state)
+    download_op = download_task().apply(mount_pvc(
+        volume_op.outputs["name"], 'local-storage', '/mnt/pipeline'))
+
+    # split_dataset_op = split_dataset_task(bucket_name=source_bucket,
+    #                                       random_state=random_state).after(download_op)
+
+    split_dataset_op = split_dataset_task(
+        random_state=random_state
+    ).apply(mount_pvc(
+        volume_op.outputs["name"], 'local-storage', '/mnt/pipeline')
+    ).after(download_op)
 
     train_model_op = train_model_task(
         epochs=epochs,
         batch=batch,
-        source_bucket="dataset",
-        yolo_model_name=yolo_model_name,
-        x_train=split_dataset_op.outputs['x_train'],
-        y_train=split_dataset_op.outputs['y_train'],
-        x_test=split_dataset_op.outputs['x_test'],
-        y_test=split_dataset_op.outputs['y_test'],
-        x_val=split_dataset_op.outputs['x_val'],
-        y_val=split_dataset_op.outputs['y_val'],
-    ).apply(mount_pvc(volume_op.outputs["name"], 'local-storage', '/mnt/pipeline'))
+        yolo_model_name=yolo_model_name
+    ).apply(mount_pvc(
+            volume_op.outputs["name"], 'local-storage', '/mnt/pipeline')
+    ).after(split_dataset_op)
 
     validate_model_op = validate_model_task(
         data_yaml=train_model_op.outputs['data_yaml'],
-        source_bucket="dataset",
-        x_val=split_dataset_op.outputs['x_val'],
-        y_val=split_dataset_op.outputs['y_val'],
         yolo_model_name=yolo_model_name,
-    ).apply(mount_pvc(volume_op.outputs["name"], 'local-storage', '/mnt/pipeline'))
+    ).apply(
+        mount_pvc(
+            volume_op.outputs["name"], 'local-storage', '/mnt/pipeline'))
 
 
 if __name__ == '__main__':
