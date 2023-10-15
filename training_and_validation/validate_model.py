@@ -2,8 +2,7 @@
 from kfp.components import OutputPath, InputPath
 
 
-def validate_model(project_path: InputPath(str),
-                   data_yaml_path: InputPath(str),
+def validate_model(data_yaml_path: InputPath(str),
                    yolo_model_name: str,
                    source_bucket: str,
                    x_val_file: InputPath(str),
@@ -51,7 +50,7 @@ def validate_model(project_path: InputPath(str),
     import json
     import os
 
-    weights_path = os.path.join(project_path, yolo_model_name, "weights", "best.pt")
+    weights_path = os.path.join("mnt", "pipeline", yolo_model_name, "weights", "best.pt")
     print(f"Loading weights at: {weights_path}")
 
     model = YOLO(weights_path)

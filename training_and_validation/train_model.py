@@ -12,8 +12,8 @@ def train_model(epochs: int,
                 y_test_file: InputPath(str),
                 x_val_file: InputPath(str),
                 y_val_file: InputPath(str),
-                project_path: OutputPath(str),
-                data_yaml_path: OutputPath(str)):
+                data_yaml_path: OutputPath(str),
+                ):
     from minio import Minio
     from minio.error import S3Error
     from tqdm import tqdm
@@ -79,6 +79,13 @@ def train_model(epochs: int,
         print(f"Error writing YAML file: {e}")
 
     from ultralytics import YOLO
+    # from ultralytics import settings
+    #
+    # # Update a setting
+    # settings.update({'mlflow': True})
+    #
+    # # Reset settings to default values
+    # settings.reset()
 
     model = YOLO('yolov8n.pt')
 
@@ -87,7 +94,7 @@ def train_model(epochs: int,
         imgsz=640,
         epochs=epochs,
         batch=batch,
-        project=project_path,
+        project="/mnt/pipeline",
         name=yolo_model_name,
    )
 
