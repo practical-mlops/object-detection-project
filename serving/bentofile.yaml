@@ -2,10 +2,5 @@ service: "service.py:svc"
 include:
   - "service.py"
   - "yolov8_custom.pt"
-python:
-  requirements_txt: "./requirements.txt"
 docker:
-  system_packages:
-    - ffmpeg
-    - libsm6
-    - libxext6
+  base_image: "ultralytics/ultralytics:8.0.203-cpu"
