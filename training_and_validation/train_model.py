@@ -1,5 +1,5 @@
 
-from kfp.components import InputPath, OutputPath
+from kfp.components import OutputPath
 
 
 def train_model(epochs: int,
