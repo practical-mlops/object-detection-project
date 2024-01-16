@@ -1,3 +1,5 @@
 ```commandline
-% bentoml build
+% bentoml serve service.py --reload
+
+% bentoml build --containerize
 ```
