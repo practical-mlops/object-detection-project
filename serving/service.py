@@ -18,14 +18,13 @@ class YOLOv8Runnable(bentoml.Runnable):
         self.model.cpu()
 
     @bentoml.Runnable.method(batchable=False)
-    def inference(self, input_imgs):
-        # Return images with boxes and labels
-        results = self.model(input_imgs)[0]
+    def inference(self, input_img):
+        results = self.model(input_img)[0]
 
         return json.loads(results[0].tojson())
 
     @bentoml.Runnable.method(batchable=False)
-    def render(self, input_imgs):
+    def render(self, input_img):
 
         predict_path = os.path.join(os.getcwd(), "predict")
         image_path = os.path.join(predict_path, "image0.jpg")
@@ -33,7 +32,7 @@ class YOLOv8Runnable(bentoml.Runnable):
         if os.path.exists(predict_path) and os.path.isdir(predict_path):
             shutil.rmtree(predict_path)
 
-        _ = self.model(input_imgs, save=True, project=os.getcwd())
+        _ = self.model(input_img, save=True, project=os.getcwd())
 
         return PIL.Image.open(image_path)
 
