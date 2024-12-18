@@ -1,428 +1,287 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Workflow
-metadata:
-  generateName: data-preparation-pipeline-
-  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22, pipelines.kubeflow.org/pipeline_compilation_time: '2023-09-03T23:28:06.325593',
-    pipelines.kubeflow.org/pipeline_spec: '{"inputs": [{"default": "42", "name": "random_state",
-      "optional": true}], "name": "data_preparation_pipeline"}'}
-  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.22}
-spec:
-  entrypoint: data-preparation-pipeline
-  templates:
-  - name: data-preparation-pipeline
-    inputs:
+# PIPELINE DEFINITION
+# Name: data-preparation-pipeline
+# Description: Pipeline for preparing and splitting dataset
+# Inputs:
+#    random_state: int [Default: 42.0]
+components:
+  comp-download-dataset:
+    executorLabel: exec-download-dataset
+    inputDefinitions:
       parameters:
-      - {name: random_state}
-    dag:
-      tasks:
-      - {name: download-dataset, template: download-dataset}
-      - name: output-file-contents
-        template: output-file-contents
-        dependencies: [split-dataset]
-        arguments:
+        output_dir:
+          defaultValue: DATASET
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-output-file-contents:
+    executorLabel: exec-output-file-contents
+    inputDefinitions:
+      artifacts:
+        dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-output-file-contents-2:
+    executorLabel: exec-output-file-contents-2
+    inputDefinitions:
+      artifacts:
+        dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-split-dataset:
+    executorLabel: exec-split-dataset
+    inputDefinitions:
+      artifacts:
+        input_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        random_state:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        x_val_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        y_val_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-download-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' 'boto3'\
+          \ 'tqdm' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_dataset(output_dataset: Output[Dataset], output_dir:\
+          \ str = \"DATASET\"):\n    import os\n    import requests\n    import tarfile\n\
+          \    from tqdm import tqdm\n\n    # FULL Dataset\n    url = \"https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz\"\
+          \n    downloaded_file = \"DATASET.gz\"\n\n    response = requests.get(url,\
+          \ stream=True)\n    file_size = int(response.headers.get(\"Content-Length\"\
+          , 0))\n    progress_bar = tqdm(total=file_size, unit=\"B\", unit_scale=True)\n\
+          \n    with open(downloaded_file, 'wb') as file:\n        for chunk in response.iter_content(chunk_size=1024):\n\
+          \            progress_bar.update(len(chunk))\n            file.write(chunk)\n\
+          \n    # Extract to the output directory\n    extraction_path = os.path.join(output_dataset.path,\
+          \ output_dir)\n    os.makedirs(extraction_path, exist_ok=True)\n\n    with\
+          \ tarfile.open(downloaded_file, 'r:gz') as tar:\n        tar.extractall(extraction_path)\n\
+          \n"
+        image: python:3.11
+    exec-output-file-contents:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - output_file_contents
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef output_file_contents(dataset: Input[Dataset]):\n    import os\n\
+          \n    def list_files(startpath):\n        for root, dirs, files in os.walk(startpath):\n\
+          \            level = root.replace(startpath, '').count(os.sep)\n       \
+          \     indent = ' ' * 4 * (level)\n            print(f'{indent}{os.path.basename(root)}/')\n\
+          \            subindent = ' ' * 4 * (level + 1)\n            for f in files:\n\
+          \                print(f'{subindent}{f}')\n\n    print(f\"Contents of {dataset.path}:\"\
+          )\n    list_files(dataset.path)\n\n"
+        image: python:3.10
+    exec-output-file-contents-2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - output_file_contents
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef output_file_contents(dataset: Input[Dataset]):\n    import os\n\
+          \n    def list_files(startpath):\n        for root, dirs, files in os.walk(startpath):\n\
+          \            level = root.replace(startpath, '').count(os.sep)\n       \
+          \     indent = ' ' * 4 * (level)\n            print(f'{indent}{os.path.basename(root)}/')\n\
+          \            subindent = ' ' * 4 * (level + 1)\n            for f in files:\n\
+          \                print(f'{subindent}{f}')\n\n    print(f\"Contents of {dataset.path}:\"\
+          )\n    list_files(dataset.path)\n\n"
+        image: python:3.10
+    exec-split-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_dataset(\n        random_state: int,\n        input_dataset:\
+          \ Input[Dataset],\n        x_val_output: Output[Dataset],\n        y_val_output:\
+          \ Output[Dataset]\n):\n    import os\n    import glob\n    import shutil\n\
+          \    from sklearn.model_selection import train_test_split\n\n    # Adjust\
+          \ paths to use input_dataset.path\n    images = list(glob.glob(os.path.join(input_dataset.path,\
+          \ \"DATASET\", \"DATA\", \"images\", \"**\")))\n    labels = list(glob.glob(os.path.join(input_dataset.path,\
+          \ \"DATASET\", \"DATA\", \"labels\", \"**\")))\n\n    train_ratio = 0.75\n\
+          \    validation_ratio = 0.15\n    test_ratio = 0.10\n\n    # train is now\
+          \ 75% of the entire data set\n    x_train, x_test, y_train, y_test = train_test_split(\n\
+          \        images,\n        labels,\n        test_size=1 - train_ratio,\n\
+          \        random_state=random_state\n    )\n\n    # test is now 10% of the\
+          \ initial data set\n    # validation is now 15% of the initial data set\n\
+          \    x_val, x_test, y_val, y_test = train_test_split(\n        x_test,\n\
+          \        y_test,\n        test_size=test_ratio / (test_ratio + validation_ratio),\n\
+          \        random_state=random_state\n    )\n\n    # Create output directories\n\
+          \    os.makedirs(os.path.join(x_val_output.path, \"images\"), exist_ok=True)\n\
+          \    os.makedirs(os.path.join(y_val_output.path, \"labels\"), exist_ok=True)\n\
+          \n    def move_files(files, output_path, category):\n        for source_file\
+          \ in files:\n            src = source_file.strip()\n            dest = os.path.join(output_path,\
+          \ category, os.path.basename(source_file))\n            shutil.copy2(src,\
+          \ dest)  # Using copy2 instead of move to preserve original files\n\n  \
+          \  # Move validation files to output locations\n    move_files(x_val, x_val_output.path,\
+          \ \"images\")\n    move_files(y_val, y_val_output.path, \"labels\")\n\n"
+        image: python:3.11
+pipelineInfo:
+  description: Pipeline for preparing and splitting dataset
+  name: data-preparation-pipeline
+root:
+  dag:
+    tasks:
+      download-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-dataset
+        taskInfo:
+          name: download-dataset
+      output-file-contents:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-output-file-contents
+        dependentTasks:
+        - split-dataset
+        inputs:
           artifacts:
-          - {name: split-dataset-x_val, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-x_val}}'}
-      - name: output-file-contents-2
-        template: output-file-contents-2
-        dependencies: [split-dataset]
-        arguments:
+            dataset:
+              taskOutputArtifact:
+                outputArtifactKey: x_val_output
+                producerTask: split-dataset
+        taskInfo:
+          name: output-file-contents
+      output-file-contents-2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-output-file-contents-2
+        dependentTasks:
+        - split-dataset
+        inputs:
           artifacts:
-          - {name: split-dataset-y_val, from: '{{tasks.split-dataset.outputs.artifacts.split-dataset-y_val}}'}
-      - name: split-dataset
-        template: split-dataset
-        dependencies: [download-dataset]
-        arguments:
+            dataset:
+              taskOutputArtifact:
+                outputArtifactKey: y_val_output
+                producerTask: split-dataset
+        taskInfo:
+          name: output-file-contents-2
+      split-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-dataset
+        dependentTasks:
+        - download-dataset
+        inputs:
+          artifacts:
+            input_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: output_dataset
+                producerTask: download-dataset
           parameters:
-          - {name: random_state, value: '{{inputs.parameters.random_state}}'}
-  - name: download-dataset
-    container:
-      args: [--bucket-name, dataset, --output, /tmp/outputs/output/data]
-      command:
-      - sh
-      - -c
-      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
-        'requests' 'boto3' 'tqdm' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
-        install --quiet --no-warn-script-location 'requests' 'boto3' 'tqdm' --user)
-        && "$0" "$@"
-      - sh
-      - -ec
-      - |
-        program_path=$(mktemp)
-        printf "%s" "$0" > "$program_path"
-        python3 -u "$program_path" "$@"
-      - |
-        def _make_parent_dirs_and_return_path(file_path: str):
-            import os
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            return file_path
-
-        def download_dataset(bucket_name, output_file):
-            import boto3
-            import os
-            import requests
-            import tarfile
-            from tqdm import tqdm
-
-            url = "https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz"
-
-            output_dir = "DATASET"
-            downloaded_file = "DATASET.gz"
-
-            response = requests.get(url, stream=True)
-            file_size = int(response.headers.get("Content-Length", 0))
-            progress_bar = tqdm(total=file_size, unit="B", unit_scale=True)
-
-            with open(downloaded_file, 'wb') as file:
-                for chunk in response.iter_content(chunk_size=1024):
-                    # Update the progress bar with the size of the downloaded chunk
-                    progress_bar.update(len(chunk))
-                    file.write(chunk)
-
-            # Open the tar archive
-            with tarfile.open(downloaded_file, 'r:gz') as tar:
-                # Extract all files from the archive
-                tar.extractall(output_dir)
-
-            minio_client = boto3.client(
-                's3',
-                endpoint_url='http://minio-service.kubeflow:9000',
-                aws_access_key_id='minio',
-                aws_secret_access_key='minio123'
-            )
-
-            try:
-                minio_client.create_bucket(Bucket=bucket_name)
-            except Exception as e:
-                # Bucket already created.
-                pass
-
-            for f in ["images", "labels"]:
-                local_dir_path = os.path.join(output_dir, "DATA", f)
-                files = os.listdir(local_dir_path)
-                for file in files:
-                    local_path = os.path.join(local_dir_path, file)
-                    s3_path = os.path.join(bucket_name, f, file)
-                    minio_client.upload_file(local_path, bucket_name, s3_path)
-
-            # Write the output file path to the output_file
-            with open(output_file, 'w') as file:
-                file.write(os.path.join(bucket_name))
-
-        import argparse
-        _parser = argparse.ArgumentParser(prog='Download dataset', description='')
-        _parser.add_argument("--bucket-name", dest="bucket_name", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--output", dest="output_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parsed_args = vars(_parser.parse_args())
-
-        _outputs = download_dataset(**_parsed_args)
-      image: python:3.7
-    outputs:
-      artifacts:
-      - {name: download-dataset-output, path: /tmp/outputs/output/data}
-    metadata:
-      labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
-        pipelines.kubeflow.org/pipeline-sdk-type: kfp
-        pipelines.kubeflow.org/enable_caching: "true"
-      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
-          {"args": ["--bucket-name", {"inputValue": "bucket_name"}, "--output", {"outputPath":
-          "output"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
-          -m pip install --quiet --no-warn-script-location ''requests'' ''boto3''
-          ''tqdm'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet
-          --no-warn-script-location ''requests'' ''boto3'' ''tqdm'' --user) && \"$0\"
-          \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
-          -u \"$program_path\" \"$@\"\n", "def _make_parent_dirs_and_return_path(file_path:
-          str):\n    import os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
-          file_path\n\ndef download_dataset(bucket_name, output_file):\n    import
-          boto3\n    import os\n    import requests\n    import tarfile\n    from
-          tqdm import tqdm\n\n    url = \"https://manning.box.com/shared/static/34dbdkmhahuafcxh0yhiqaf05rqnzjq9.gz\"\n\n    output_dir
-          = \"DATASET\"\n    downloaded_file = \"DATASET.gz\"\n\n    response = requests.get(url,
-          stream=True)\n    file_size = int(response.headers.get(\"Content-Length\",
-          0))\n    progress_bar = tqdm(total=file_size, unit=\"B\", unit_scale=True)\n\n    with
-          open(downloaded_file, ''wb'') as file:\n        for chunk in response.iter_content(chunk_size=1024):\n            #
-          Update the progress bar with the size of the downloaded chunk\n            progress_bar.update(len(chunk))\n            file.write(chunk)\n\n    #
-          Open the tar archive\n    with tarfile.open(downloaded_file, ''r:gz'') as
-          tar:\n        # Extract all files from the archive\n        tar.extractall(output_dir)\n\n    minio_client
-          = boto3.client(\n        ''s3'',\n        endpoint_url=''http://minio-service.kubeflow:9000'',\n        aws_access_key_id=''minio'',\n        aws_secret_access_key=''minio123''\n    )\n\n    try:\n        minio_client.create_bucket(Bucket=bucket_name)\n    except
-          Exception as e:\n        # Bucket already created.\n        pass\n\n    for
-          f in [\"images\", \"labels\"]:\n        local_dir_path = os.path.join(output_dir,
-          \"DATA\", f)\n        files = os.listdir(local_dir_path)\n        for file
-          in files:\n            local_path = os.path.join(local_dir_path, file)\n            s3_path
-          = os.path.join(bucket_name, f, file)\n            minio_client.upload_file(local_path,
-          bucket_name, s3_path)\n\n    # Write the output file path to the output_file\n    with
-          open(output_file, ''w'') as file:\n        file.write(os.path.join(bucket_name))\n\nimport
-          argparse\n_parser = argparse.ArgumentParser(prog=''Download dataset'', description='''')\n_parser.add_argument(\"--bucket-name\",
-          dest=\"bucket_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--output\",
-          dest=\"output_file\", type=_make_parent_dirs_and_return_path, required=True,
-          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
-          = download_dataset(**_parsed_args)\n"], "image": "python:3.7"}}, "inputs":
-          [{"name": "bucket_name", "type": "String"}], "name": "Download dataset",
-          "outputs": [{"name": "output", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
-        pipelines.kubeflow.org/arguments.parameters: '{"bucket_name": "dataset"}'}
-  - name: output-file-contents
-    container:
-      args: [--file, /tmp/inputs/file/data]
-      command:
-      - sh
-      - -ec
-      - |
-        program_path=$(mktemp)
-        printf "%s" "$0" > "$program_path"
-        python3 -u "$program_path" "$@"
-      - |
-        def output_file_contents(file_path):
-            print(f"Printing contents of :{file_path}")
-
-            with open(file_path, 'r') as f:
-                print(f.read())
-
-        import argparse
-        _parser = argparse.ArgumentParser(prog='Output file contents', description='')
-        _parser.add_argument("--file", dest="file_path", type=str, required=True, default=argparse.SUPPRESS)
-        _parsed_args = vars(_parser.parse_args())
-
-        _outputs = output_file_contents(**_parsed_args)
-      image: python:3.7
-    inputs:
-      artifacts:
-      - {name: split-dataset-x_val, path: /tmp/inputs/file/data}
-    metadata:
-      labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
-        pipelines.kubeflow.org/pipeline-sdk-type: kfp
-        pipelines.kubeflow.org/enable_caching: "true"
-      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
-          {"args": ["--file", {"inputPath": "file"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
-          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
-          "def output_file_contents(file_path):\n    print(f\"Printing contents of
-          :{file_path}\")\n\n    with open(file_path, ''r'') as f:\n        print(f.read())\n\nimport
-          argparse\n_parser = argparse.ArgumentParser(prog=''Output file contents'',
-          description='''')\n_parser.add_argument(\"--file\", dest=\"file_path\",
-          type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
-          = output_file_contents(**_parsed_args)\n"], "image": "python:3.7"}}, "inputs":
-          [{"name": "file", "type": "String"}], "name": "Output file contents"}',
-        pipelines.kubeflow.org/component_ref: '{}'}
-  - name: output-file-contents-2
-    container:
-      args: [--file, /tmp/inputs/file/data]
-      command:
-      - sh
-      - -ec
-      - |
-        program_path=$(mktemp)
-        printf "%s" "$0" > "$program_path"
-        python3 -u "$program_path" "$@"
-      - |
-        def output_file_contents(file_path):
-            print(f"Printing contents of :{file_path}")
-
-            with open(file_path, 'r') as f:
-                print(f.read())
-
-        import argparse
-        _parser = argparse.ArgumentParser(prog='Output file contents', description='')
-        _parser.add_argument("--file", dest="file_path", type=str, required=True, default=argparse.SUPPRESS)
-        _parsed_args = vars(_parser.parse_args())
-
-        _outputs = output_file_contents(**_parsed_args)
-      image: python:3.7
-    inputs:
-      artifacts:
-      - {name: split-dataset-y_val, path: /tmp/inputs/file/data}
-    metadata:
-      labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
-        pipelines.kubeflow.org/pipeline-sdk-type: kfp
-        pipelines.kubeflow.org/enable_caching: "true"
-      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
-          {"args": ["--file", {"inputPath": "file"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
-          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
-          "def output_file_contents(file_path):\n    print(f\"Printing contents of
-          :{file_path}\")\n\n    with open(file_path, ''r'') as f:\n        print(f.read())\n\nimport
-          argparse\n_parser = argparse.ArgumentParser(prog=''Output file contents'',
-          description='''')\n_parser.add_argument(\"--file\", dest=\"file_path\",
-          type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
-          = output_file_contents(**_parsed_args)\n"], "image": "python:3.7"}}, "inputs":
-          [{"name": "file", "type": "String"}], "name": "Output file contents"}',
-        pipelines.kubeflow.org/component_ref: '{}'}
-  - name: split-dataset
-    container:
-      args: [--bucket-name, dataset, --random-state, '{{inputs.parameters.random_state}}',
-        --x-train, /tmp/outputs/x_train/data, --y-train, /tmp/outputs/y_train/data,
-        --x-test, /tmp/outputs/x_test/data, --y-test, /tmp/outputs/y_test/data, --x-val,
-        /tmp/outputs/x_val/data, --y-val, /tmp/outputs/y_val/data]
-      command:
-      - sh
-      - -c
-      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
-        'minio' 'scikit-learn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
-        --quiet --no-warn-script-location 'minio' 'scikit-learn' --user) && "$0" "$@"
-      - sh
-      - -ec
-      - |
-        program_path=$(mktemp)
-        printf "%s" "$0" > "$program_path"
-        python3 -u "$program_path" "$@"
-      - |
-        def _make_parent_dirs_and_return_path(file_path: str):
-            import os
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            return file_path
-
-        def split_dataset(bucket_name,
-                          random_state,
-                          x_train_file,
-                          y_train_file,
-                          x_test_file,
-                          y_test_file,
-                          x_val_file,
-                          y_val_file):
-
-            from minio import Minio
-            from minio.error import S3Error
-
-            def list_objects_with_prefix(minio_client, bucket_name, prefix):
-                try:
-                    objects = minio_client.list_objects(bucket_name, prefix=prefix, recursive=True)
-                    return [obj.object_name for obj in objects]
-                except S3Error as err:
-                    print(f"Error listing objects with prefix '{prefix}' in bucket '{bucket_name}': {err}")
-
-            minio_client = Minio(
-                'minio-service.kubeflow:9000',
-                access_key='minio',
-                secret_key='minio123',
-                secure=False
-            )
-
-            images = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/images")
-            labels = list_objects_with_prefix(minio_client, bucket_name, prefix=f"{bucket_name}/labels")
-
-            from sklearn.model_selection import train_test_split
-
-            train_ratio = 0.75
-            validation_ratio = 0.15
-            test_ratio = 0.10
-
-            # train is now 75% of the entire data set
-            x_train, x_test, y_train, y_test = train_test_split(images, labels,
-                                                                test_size=1 - train_ratio,
-                                                                random_state=random_state)
-
-            # test is now 10% of the initial data set
-            # validation is now 15% of the initial data set
-            x_val, x_test, y_val, y_test = train_test_split(x_test, y_test,
-                                                            test_size=test_ratio / (test_ratio + validation_ratio),
-                                                            random_state=random_state)
-
-            with open(x_train_file, "w") as f:
-                f.writelines(line + '\n' for line in x_train)
-
-            with open(y_train_file, "w") as f:
-                f.writelines(line + '\n' for line in y_train)
-
-            with open(x_test_file, "w") as f:
-                f.writelines(line + '\n' for line in x_test)
-
-            with open(y_test_file, "w") as f:
-                f.writelines(line + '\n' for line in y_test)
-
-            with open(x_val_file, "w") as f:
-                f.writelines(line + '\n' for line in x_val)
-
-            with open(y_val_file, "w") as f:
-                f.writelines(line + '\n' for line in y_val)
-
-            print(len(x_train))
-            print(len(x_val))
-            print(len(x_test))
-
-        import argparse
-        _parser = argparse.ArgumentParser(prog='Split dataset', description='')
-        _parser.add_argument("--bucket-name", dest="bucket_name", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--random-state", dest="random_state", type=int, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--x-train", dest="x_train_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--y-train", dest="y_train_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--x-test", dest="x_test_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--y-test", dest="y_test_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--x-val", dest="x_val_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--y-val", dest="y_val_file", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parsed_args = vars(_parser.parse_args())
-
-        _outputs = split_dataset(**_parsed_args)
-      image: python:3.7
-    inputs:
-      parameters:
-      - {name: random_state}
-    outputs:
-      artifacts:
-      - {name: split-dataset-x_test, path: /tmp/outputs/x_test/data}
-      - {name: split-dataset-x_train, path: /tmp/outputs/x_train/data}
-      - {name: split-dataset-x_val, path: /tmp/outputs/x_val/data}
-      - {name: split-dataset-y_test, path: /tmp/outputs/y_test/data}
-      - {name: split-dataset-y_train, path: /tmp/outputs/y_train/data}
-      - {name: split-dataset-y_val, path: /tmp/outputs/y_val/data}
-    metadata:
-      labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.22
-        pipelines.kubeflow.org/pipeline-sdk-type: kfp
-        pipelines.kubeflow.org/enable_caching: "true"
-      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
-          {"args": ["--bucket-name", {"inputValue": "bucket_name"}, "--random-state",
-          {"inputValue": "random_state"}, "--x-train", {"outputPath": "x_train"},
-          "--y-train", {"outputPath": "y_train"}, "--x-test", {"outputPath": "x_test"},
-          "--y-test", {"outputPath": "y_test"}, "--x-val", {"outputPath": "x_val"},
-          "--y-val", {"outputPath": "y_val"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1
-          python3 -m pip install --quiet --no-warn-script-location ''minio'' ''scikit-learn''
-          || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
-          ''minio'' ''scikit-learn'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
-          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
-          "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
-          exist_ok=True)\n    return file_path\n\ndef split_dataset(bucket_name,\n                  random_state,\n                  x_train_file,\n                  y_train_file,\n                  x_test_file,\n                  y_test_file,\n                  x_val_file,\n                  y_val_file):\n\n    from
-          minio import Minio\n    from minio.error import S3Error\n\n    def list_objects_with_prefix(minio_client,
-          bucket_name, prefix):\n        try:\n            objects = minio_client.list_objects(bucket_name,
-          prefix=prefix, recursive=True)\n            return [obj.object_name for
-          obj in objects]\n        except S3Error as err:\n            print(f\"Error
-          listing objects with prefix ''{prefix}'' in bucket ''{bucket_name}'': {err}\")\n\n    minio_client
-          = Minio(\n        ''minio-service.kubeflow:9000'',\n        access_key=''minio'',\n        secret_key=''minio123'',\n        secure=False\n    )\n\n    images
-          = list_objects_with_prefix(minio_client, bucket_name, prefix=f\"{bucket_name}/images\")\n    labels
-          = list_objects_with_prefix(minio_client, bucket_name, prefix=f\"{bucket_name}/labels\")\n\n    from
-          sklearn.model_selection import train_test_split\n\n    train_ratio = 0.75\n    validation_ratio
-          = 0.15\n    test_ratio = 0.10\n\n    # train is now 75% of the entire data
-          set\n    x_train, x_test, y_train, y_test = train_test_split(images, labels,\n                                                        test_size=1
-          - train_ratio,\n                                                        random_state=random_state)\n\n    #
-          test is now 10% of the initial data set\n    # validation is now 15% of
-          the initial data set\n    x_val, x_test, y_val, y_test = train_test_split(x_test,
-          y_test,\n                                                    test_size=test_ratio
-          / (test_ratio + validation_ratio),\n                                                    random_state=random_state)\n\n    with
-          open(x_train_file, \"w\") as f:\n        f.writelines(line + ''\\n'' for
-          line in x_train)\n\n    with open(y_train_file, \"w\") as f:\n        f.writelines(line
-          + ''\\n'' for line in y_train)\n\n    with open(x_test_file, \"w\") as f:\n        f.writelines(line
-          + ''\\n'' for line in x_test)\n\n    with open(y_test_file, \"w\") as f:\n        f.writelines(line
-          + ''\\n'' for line in y_test)\n\n    with open(x_val_file, \"w\") as f:\n        f.writelines(line
-          + ''\\n'' for line in x_val)\n\n    with open(y_val_file, \"w\") as f:\n        f.writelines(line
-          + ''\\n'' for line in y_val)\n\n    print(len(x_train))\n    print(len(x_val))\n    print(len(x_test))\n\nimport
-          argparse\n_parser = argparse.ArgumentParser(prog=''Split dataset'', description='''')\n_parser.add_argument(\"--bucket-name\",
-          dest=\"bucket_name\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--random-state\",
-          dest=\"random_state\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-train\",
-          dest=\"x_train_file\", type=_make_parent_dirs_and_return_path, required=True,
-          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-train\", dest=\"y_train_file\",
-          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-test\",
-          dest=\"x_test_file\", type=_make_parent_dirs_and_return_path, required=True,
-          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-test\", dest=\"y_test_file\",
-          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--x-val\",
-          dest=\"x_val_file\", type=_make_parent_dirs_and_return_path, required=True,
-          default=argparse.SUPPRESS)\n_parser.add_argument(\"--y-val\", dest=\"y_val_file\",
-          type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)\n_parsed_args
-          = vars(_parser.parse_args())\n\n_outputs = split_dataset(**_parsed_args)\n"],
-          "image": "python:3.7"}}, "inputs": [{"name": "bucket_name", "type": "String"},
-          {"name": "random_state", "type": "Integer"}], "name": "Split dataset", "outputs":
-          [{"name": "x_train", "type": "String"}, {"name": "y_train", "type": "String"},
-          {"name": "x_test", "type": "String"}, {"name": "y_test", "type": "String"},
-          {"name": "x_val", "type": "String"}, {"name": "y_val", "type": "String"}]}',
-        pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"bucket_name":
-          "dataset", "random_state": "{{inputs.parameters.random_state}}"}'}
-  arguments:
+            random_state:
+              componentInputParameter: random_state
+        taskInfo:
+          name: split-dataset
+  inputDefinitions:
     parameters:
-    - {name: random_state, value: '42'}
-  serviceAccountName: pipeline-runner
+      random_state:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.11.0
