@@ -25,16 +25,8 @@ class YOLOv8Runnable(bentoml.Runnable):
 
     @bentoml.Runnable.method(batchable=False)
     def render(self, input_img):
-
-        predict_path = os.path.join(os.getcwd(), "predict")
-        image_path = os.path.join(predict_path, "image0.jpg")
-
-        if os.path.exists(predict_path) and os.path.isdir(predict_path):
-            shutil.rmtree(predict_path)
-
-        _ = self.model(input_img, save=True, project=os.getcwd())
-
-        return PIL.Image.open(image_path)
+        result = self.model(input_img, save=True, project=os.getcwd())
+        return PIL.Image.open(os.path.join(result[0].save_dir, result[0].path))
 
 
 yolo_v8_runner = bentoml.Runner(YOLOv8Runnable)

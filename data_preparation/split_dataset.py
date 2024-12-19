@@ -1,4 +1,19 @@
-def split_dataset(random_state: int):
+from typing import NamedTuple
+
+def split_dataset(random_state: int) -> NamedTuple('Outputs', [('x_val', str), ('y_val', str)]):
+    """
+    Split dataset into train, validation, and test sets.
+
+
+    Args:
+        random_state: Random seed for reproducibility
+
+    Returns:
+        NamedTuple containing:
+            x_val (str): Path to validation images directory
+            y_val (str): Path to validation labels directory
+    """
+    from typing import NamedTuple
     import os
     import glob
     import shutil
@@ -40,3 +55,10 @@ def split_dataset(random_state: int):
     move_files(y_train, "train", "labels")
     move_files(y_test, "test", "labels")
     move_files(y_val, "val", "labels")
+
+    # Define output paths
+    x_val_path = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "val", "images")
+    y_val_path = os.path.join("/", "mnt", "pipeline", "DATASET", "DATA", "val", "labels")
+
+    output = NamedTuple('Outputs', [('x_val', str), ('y_val', str)])
+    return output(x_val_path, y_val_path)
