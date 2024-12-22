@@ -1,0 +1,4 @@
+deepchecks==0.18.1
+torch==2.2.2
+torchvision==0.17.2
+pytorch-ignite==0.5.1

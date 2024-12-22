@@ -3,10 +3,26 @@ import shutil
 
 import PIL
 import bentoml
+import logging
 from ultralytics import YOLO
 from bentoml.io import Image
 from bentoml.io import JSON
 import os
+from metrics import confidence_histogram
+
+# Create a stream handler
+ch = logging.StreamHandler()
+
+# Set a format for the handler
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+ch.setFormatter(formatter)
+
+# Get the BentoML logger
+bentoml_logger = logging.getLogger("bentoml")
+
+# Add the handler to the BentoML logger
+bentoml_logger.addHandler(ch)
+bentoml_logger.setLevel(logging.DEBUG)
 
 
 class YOLOv8Runnable(bentoml.Runnable):
@@ -20,8 +36,12 @@ class YOLOv8Runnable(bentoml.Runnable):
     @bentoml.Runnable.method(batchable=False)
     def inference(self, input_img):
         results = self.model(input_img)[0]
-
-        return json.loads(results[0].tojson())
+        if len(results) == 0:
+            bentoml_logger.error("Error while processing")
+            return {"status": "failed"}
+        response = json.loads(results[0].tojson())
+        confidence_histogram.observe(response[0]["confidence"])
+        return response
 
     @bentoml.Runnable.method(batchable=False)
     def render(self, input_img):
