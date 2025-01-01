@@ -1,0 +1,193 @@
+# PIPELINE DEFINITION
+# Name: joke-pipeline
+# Description: Pipeline that generates jokes and counts words
+# Inputs:
+#    num_jokes: int [Default: 3.0]
+components:
+  comp-count-words:
+    executorLabel: exec-count-words
+    inputDefinitions:
+      artifacts:
+        jokes_file:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: NUMBER_INTEGER
+  comp-generate-joke:
+    executorLabel: exec-generate-joke
+    inputDefinitions:
+      parameters:
+        num_of_jokes:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        output_jokes:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-output-result:
+    executorLabel: exec-output-result
+    inputDefinitions:
+      parameters:
+        count:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-count-words:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - count_words
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef count_words(\n        jokes_file: Input[Artifact]  # C\n) ->\
+          \ int:\n    import os\n\n    # Read from the artifact path\n    jokes_path\
+          \ = os.path.join(jokes_file.path, \"jokes.txt\")  # D\n    with open(jokes_path,\
+          \ 'r') as f:\n        content = f.read()\n        return len(content.split())\n\
+          \n"
+        image: python:3.9
+    exec-generate-joke:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_joke
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pyjokes' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_joke(\n        num_of_jokes: int,\n        output_jokes:\
+          \ Output[Artifact]  # A\n):\n    import pyjokes\n    import os\n\n    #\
+          \ Write jokes to the artifact path\n    os.makedirs(output_jokes.path, exist_ok=True)\n\
+          \    jokes_path = os.path.join(output_jokes.path, \"jokes.txt\")  # B\n\
+          \    with open(jokes_path, 'w') as f:\n        for _ in range(num_of_jokes):\n\
+          \            joke = pyjokes.get_joke()\n            f.write(joke + '\\n')\n\
+          \n"
+        image: python:3.11
+    exec-output-result:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - output_result
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef output_result(count: int) -> str:\n    return f\"Word count:\
+          \ {count}\"\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: Pipeline that generates jokes and counts words
+  name: joke-pipeline
+root:
+  dag:
+    tasks:
+      count-words:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-count-words
+        dependentTasks:
+        - generate-joke
+        inputs:
+          artifacts:
+            jokes_file:
+              taskOutputArtifact:
+                outputArtifactKey: output_jokes
+                producerTask: generate-joke
+        taskInfo:
+          name: count-words
+      generate-joke:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-joke
+        inputs:
+          parameters:
+            num_of_jokes:
+              componentInputParameter: num_jokes
+        taskInfo:
+          name: generate-joke
+      output-result:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-output-result
+        dependentTasks:
+        - count-words
+        inputs:
+          parameters:
+            count:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: count-words
+        taskInfo:
+          name: output-result
+  inputDefinitions:
+    parameters:
+      num_jokes:
+        defaultValue: 3.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.11.0
