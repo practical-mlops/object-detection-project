@@ -1,0 +1,165 @@
+# PIPELINE DEFINITION
+# Name: joke-pipeline
+# Description: simple pipeline demonstrating data passing
+components:
+  comp-count-words:
+    executorLabel: exec-count-words
+    inputDefinitions:
+      parameters:
+        input:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: NUMBER_INTEGER
+  comp-generate-joke:
+    executorLabel: exec-generate-joke
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-output-result:
+    executorLabel: exec-output-result
+    inputDefinitions:
+      parameters:
+        count:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-count-words:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - count_words
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef count_words(input: str) -> int:\n    return len(input.split())\n\
+          \n"
+        image: python:3.9
+    exec-generate-joke:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_joke
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'pyjokes' &&\
+          \ \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_joke() -> str:\n    import pyjokes\n    return pyjokes.get_joke()\n\
+          \n"
+        image: python:3.11
+    exec-output-result:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - output_result
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef output_result(count: int) -> str:\n    return f\"Word count:\
+          \ {count}\"\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: simple pipeline demonstrating data passing
+  name: joke-pipeline
+root:
+  dag:
+    tasks:
+      count-words:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-count-words
+        dependentTasks:
+        - generate-joke
+        inputs:
+          parameters:
+            input:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: generate-joke
+        taskInfo:
+          name: count-words
+      generate-joke:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-joke
+        taskInfo:
+          name: generate-joke
+      output-result:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-output-result
+        dependentTasks:
+        - count-words
+        inputs:
+          parameters:
+            count:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: count-words
+        taskInfo:
+          name: output-result
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.11.0
