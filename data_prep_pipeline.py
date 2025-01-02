@@ -1,6 +1,7 @@
 from kfp import dsl
 from kfp.dsl import Input, Output, Dataset
 
+
 @dsl.component(
     packages_to_install=["requests", "boto3", "tqdm"],
     base_image="python:3.11"
@@ -31,6 +32,7 @@ def download_dataset(output_dataset: Output[Dataset], output_dir: str = "DATASET
     with tarfile.open(downloaded_file, 'r:gz') as tar:
         tar.extractall(extraction_path)
 
+
 @dsl.component(
     packages_to_install=["scikit-learn"],
     base_image="python:3.11"
@@ -38,17 +40,21 @@ def download_dataset(output_dataset: Output[Dataset], output_dir: str = "DATASET
 def split_dataset(
         random_state: int,
         input_dataset: Input[Dataset],
-        x_val_output: Output[Dataset],
-        y_val_output: Output[Dataset]
+        train_dataset: Output[Dataset],  # Changed output names
+        validation_dataset: Output[Dataset],
+        test_dataset: Output[Dataset]
 ):
     import os
     import glob
     import shutil
     from sklearn.model_selection import train_test_split
 
+    BASE_PATH = "MINIDATA"
+    # BASE_PATH = "DATA"
+
     # Adjust paths to use input_dataset.path
-    images = list(glob.glob(os.path.join(input_dataset.path, "DATASET", "DATA", "images", "**")))
-    labels = list(glob.glob(os.path.join(input_dataset.path, "DATASET", "DATA", "labels", "**")))
+    images = list(glob.glob(os.path.join(input_dataset.path, "DATASET", BASE_PATH, "images", "**")))
+    labels = list(glob.glob(os.path.join(input_dataset.path, "DATASET", BASE_PATH, "labels", "**")))
 
     train_ratio = 0.75
     validation_ratio = 0.15
@@ -71,37 +77,42 @@ def split_dataset(
         random_state=random_state
     )
 
-    # Create output directories
-    os.makedirs(os.path.join(x_val_output.path, "images"), exist_ok=True)
-    os.makedirs(os.path.join(y_val_output.path, "labels"), exist_ok=True)
+    # Create output directories for each split
+    for dataset_output, x_files, y_files in [
+        (train_dataset, x_train, y_train),
+        (validation_dataset, x_val, y_val),
+        (test_dataset, x_test, y_test)
+    ]:
+        os.makedirs(os.path.join(dataset_output.path, "images"), exist_ok=True)
+        os.makedirs(os.path.join(dataset_output.path, "labels"), exist_ok=True)
 
-    def move_files(files, output_path, category):
-        for source_file in files:
-            src = source_file.strip()
-            dest = os.path.join(output_path, category, os.path.basename(source_file))
-            shutil.copy2(src, dest)  # Using copy2 instead of move to preserve original files
+        # Move files
+        for src in x_files:
+            dest = os.path.join(dataset_output.path, "images", os.path.basename(src))
+            shutil.copy2(src, dest)
 
-    # Move validation files to output locations
-    move_files(x_val, x_val_output.path, "images")
-    move_files(y_val, y_val_output.path, "labels")
+        for src in y_files:
+            dest = os.path.join(dataset_output.path, "labels", os.path.basename(src))
+            shutil.copy2(src, dest)
 
-@dsl.component(
-    base_image="python:3.10"
-)
+
+
+@dsl.component
 def output_file_contents(dataset: Input[Dataset]):
     import os
 
-    def list_files(startpath):
-        for root, dirs, files in os.walk(startpath):
-            level = root.replace(startpath, '').count(os.sep)
+    def list_files(start_path):
+        for root, dirs, files in os.walk(start_path):
+            level = root.replace(start_path, '').count(os.sep)
             indent = ' ' * 4 * (level)
             print(f'{indent}{os.path.basename(root)}/')
-            subindent = ' ' * 4 * (level + 1)
+            sub_indent = ' ' * 4 * (level + 1)
             for f in files:
-                print(f'{subindent}{f}')
+                print(f'{sub_indent}{f}')
 
     print(f"Contents of {dataset.path}:")
     list_files(dataset.path)
+
 
 @dsl.pipeline(
     name="data_preparation_pipeline",
@@ -118,11 +129,12 @@ def pipeline(random_state: int = 42):
     )
 
     # Output the contents of both validation sets
-    output_file_contents(dataset=split_op.outputs["x_val_output"])
-    output_file_contents(dataset=split_op.outputs["y_val_output"])
+    output_file_contents(dataset=split_op.outputs["train_dataset"])
+
 
 if __name__ == '__main__':
     from kfp import compiler
+
     compiler.Compiler().compile(
         pipeline_func=pipeline,
         package_path='dataprep_pipeline.yaml'

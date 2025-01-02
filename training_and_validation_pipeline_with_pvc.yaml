@@ -1,0 +1,446 @@
+# PIPELINE DEFINITION
+# Name: yolo-object-detection-pipeline
+# Description: YOLO Object Detection Pipeline
+# Inputs:
+#    batch: int [Default: 8.0]
+#    epochs: int [Default: 1.0]
+#    random_state: int [Default: 42.0]
+#    yolo_model_name: str [Default: 'yolov8n_custom']
+components:
+  comp-createpvc:
+    executorLabel: exec-createpvc
+    inputDefinitions:
+      parameters:
+        access_modes:
+          description: 'AccessModes to request for the provisioned PVC. May
+
+            be one or more of ``''ReadWriteOnce''``, ``''ReadOnlyMany''``, ``''ReadWriteMany''``,
+            or
+
+            ``''ReadWriteOncePod''``. Corresponds to `PersistentVolumeClaim.spec.accessModes
+            <https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes>`_.'
+          parameterType: LIST
+        annotations:
+          description: Annotations for the PVC's metadata. Corresponds to `PersistentVolumeClaim.metadata.annotations
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaim>`_.
+          isOptional: true
+          parameterType: STRUCT
+        pvc_name:
+          description: 'Name of the PVC. Corresponds to `PersistentVolumeClaim.metadata.name
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaim>`_.
+            Only one of ``pvc_name`` and ``pvc_name_suffix`` can
+
+            be provided.'
+          isOptional: true
+          parameterType: STRING
+        pvc_name_suffix:
+          description: 'Prefix to use for a dynamically generated name, which
+
+            will take the form ``<argo-workflow-name>-<pvc_name_suffix>``. Only one
+
+            of ``pvc_name`` and ``pvc_name_suffix`` can be provided.'
+          isOptional: true
+          parameterType: STRING
+        size:
+          description: The size of storage requested by the PVC that will be provisioned.
+            For example, ``'5Gi'``. Corresponds to `PersistentVolumeClaim.spec.resources.requests.storage
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec>`_.
+          parameterType: STRING
+        storage_class_name:
+          defaultValue: ''
+          description: 'Name of StorageClass from which to provision the PV
+
+            to back the PVC. ``None`` indicates to use the cluster''s default
+
+            storage_class_name. Set to ``''''`` for a statically specified PVC.'
+          isOptional: true
+          parameterType: STRING
+        volume_name:
+          description: 'Pre-existing PersistentVolume that should back the
+
+            provisioned PersistentVolumeClaim. Used for statically
+
+            specified PV only. Corresponds to `PersistentVolumeClaim.spec.volumeName
+            <https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec>`_.'
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        name:
+          parameterType: STRING
+  comp-deletepvc:
+    executorLabel: exec-deletepvc
+    inputDefinitions:
+      parameters:
+        pvc_name:
+          description: Name of the PVC to delete. Supports passing a runtime-generated
+            name, such as a name provided by ``kubernetes.CreatePvcOp().outputs['name']``.
+          parameterType: STRING
+  comp-download-dataset:
+    executorLabel: exec-download-dataset
+  comp-split-dataset:
+    executorLabel: exec-split-dataset
+    inputDefinitions:
+      parameters:
+        random_state:
+          parameterType: NUMBER_INTEGER
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      parameters:
+        batch:
+          parameterType: NUMBER_INTEGER
+        epochs:
+          parameterType: NUMBER_INTEGER
+        yolo_model_name:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        data_yaml:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        model_output:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-validate-model:
+    executorLabel: exec-validate-model
+    inputDefinitions:
+      artifacts:
+        data_yaml:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-createpvc:
+      container:
+        image: argostub/createpvc
+    exec-deletepvc:
+      container:
+        image: argostub/deletepvc
+    exec-download-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'requests' 'boto3'\
+          \ 'tqdm' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_dataset():\n    import requests\n    import tarfile\n\
+          \    from tqdm import tqdm\n\n    # MINI Dataset\n    url = \"https://manning.box.com/shared/static/coiv3n2t5t0v42xgfhlsfi8bhvd7b441.gz\"\
+          \n    downloaded_file = \"DATASET.gz\"\n\n    response = requests.get(url,\
+          \ stream=True)\n    file_size = int(response.headers.get(\"Content-Length\"\
+          , 0))\n    progress_bar = tqdm(total=file_size, unit=\"B\", unit_scale=True)\n\
+          \n    with open(downloaded_file, 'wb') as file:\n        for chunk in response.iter_content(chunk_size=1024):\n\
+          \            progress_bar.update(len(chunk))\n            file.write(chunk)\n\
+          \n    # Extract to the output directory\n    # NOTE: Not needed anymore\n\
+          \    # extraction_path = os.path.join(output_dataset.path, output_dir)\n\
+          \    # os.makedirs(extraction_path, exist_ok=True)\n\n    with tarfile.open(downloaded_file,\
+          \ 'r:gz') as tar:\n        tar.extractall(\"/data/DATASET\")\n\n"
+        image: python:3.11
+    exec-split-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_dataset(random_state: int):\n    import os\n    import\
+          \ glob\n    import shutil\n    from sklearn.model_selection import train_test_split\n\
+          \n    BASE_PATH = \"MINIDATA\"\n\n    images = list(glob.glob(os.path.join(\"\
+          /data/DATASET\", BASE_PATH, \"images\", \"**\")))\n    labels = list(glob.glob(os.path.join(\"\
+          /data/DATASET\", BASE_PATH, \"labels\", \"**\")))\n\n    train_ratio = 0.75\n\
+          \    validation_ratio = 0.15\n    test_ratio = 0.10\n\n    x_train, x_test,\
+          \ y_train, y_test = train_test_split(\n        images, labels, test_size=1\
+          \ - train_ratio, random_state=random_state\n    )\n\n    x_val, x_test,\
+          \ y_val, y_test = train_test_split(\n        x_test, y_test,\n        test_size=test_ratio\
+          \ / (test_ratio + validation_ratio),\n        random_state=random_state\n\
+          \    )\n\n    # Create directories for splits\n    for split in [\"train\"\
+          , \"test\", \"val\"]:\n        for category in [\"images\", \"labels\"]:\n\
+          \            os.makedirs(os.path.join(\"/data\", split, category), exist_ok=True)\n\
+          \n    def move_files(files, split, category):\n        for src in files:\n\
+          \            dest = os.path.join(\"/data\", split, category, os.path.basename(src))\n\
+          \            shutil.copy2(src, dest)\n\n    # Move files to respective splits\n\
+          \    move_files(x_train, \"train\", \"images\")\n    move_files(y_train,\
+          \ \"train\", \"labels\")\n    move_files(x_val, \"val\", \"images\")\n \
+          \   move_files(y_val, \"val\", \"labels\")\n    move_files(x_test, \"test\"\
+          , \"images\")\n    move_files(y_test, \"test\", \"labels\")\n\n"
+        image: python:3.11
+    exec-train-model:
+      container:
+        args:
+        - "\n            # Install system dependencies\n            apt-get update\
+          \ &&             apt-get install -y --no-install-recommends            \
+          \     libgl1-mesa-glx                 libglib2.0-0                 && rm\
+          \ -rf /var/lib/apt/lists/* &&             \n            # Install Python\
+          \ packages\n            pip install --no-cache-dir                 ultralytics\
+          \                 torch                 opencv-python-headless==4.8.1.78\
+          \                 minio                 tqdm                 pyyaml && \
+          \            \n            # Write training script\n            cat << 'EOF'\
+          \ > /train.py\n\nimport os\nimport yaml\nimport shutil\nimport argparse\n\
+          from ultralytics import YOLO\n\ndef parse_args():\n    parser = argparse.ArgumentParser(description='Train\
+          \ YOLO model')\n    parser.add_argument('--epochs', type=int, required=True,\
+          \ help='Number of epochs')\n    parser.add_argument('--batch', type=int,\
+          \ required=True, help='Batch size')\n    parser.add_argument('--model-name',\
+          \ required=True, help='Name of the model')\n    parser.add_argument('--model-output',\
+          \ required=True, help='Path to save the model')\n    parser.add_argument('--data-yaml',\
+          \ required=True, help='Path to save data.yaml')\n    return parser.parse_args()\n\
+          \ndef main():\n    args = parse_args()\n    \n    # Define data configuration\
+          \ using absolute paths\n    data = {\n        'train': '/data/train/images',\n\
+          \        'val': '/data/val/images',\n        'test': '/data/test/images',\n\
+          \        'nc': 1,\n        'names': {\n            0: 'id_card'\n      \
+          \  }\n    }\n\n    # Write data.yaml\n    data_yaml_path = os.path.join(args.data_yaml,\
+          \ \"data.yaml\")\n    os.makedirs(os.path.dirname(data_yaml_path), exist_ok=True)\n\
+          \n    print(f\"Writing data configuration to {data_yaml_path}\")\n    print(\"\
+          Data YAML contents:\")\n    print(yaml.dump(data))\n\n    with open(data_yaml_path,\
+          \ 'w') as file:\n        yaml.dump(data, file)\n\n    # Train model\n  \
+          \  model = YOLO('yolov8n.pt')\n    results = model.train(\n        data=data_yaml_path,\n\
+          \        imgsz=640,\n        epochs=args.epochs,\n        batch=args.batch,\n\
+          \        project=os.path.dirname(args.model_output),\n        name=args.model_name\n\
+          \    )\n\n    # Save best model\n    best_model_source = os.path.join(os.path.dirname(args.model_output),\
+          \ args.model_name, \"weights\", \"best.pt\")\n    best_model_dest = os.path.join(args.model_output,\
+          \ \"best.pt\")\n    os.makedirs(os.path.dirname(best_model_dest), exist_ok=True)\n\
+          \    shutil.copy2(best_model_source, best_model_dest)\n\nif __name__ ==\
+          \ \"__main__\":\n    main()\n\nEOF\n\n            # Execute the training\
+          \ script\n            python3 /train.py                 --epochs \"$0\"\
+          \                 --batch \"$1\"                 --model-name \"$2\"   \
+          \              --model-output \"$3\"                 --data-yaml \"$4\"\n\
+          \            "
+        - '{{$.inputs.parameters[''epochs'']}}'
+        - '{{$.inputs.parameters[''batch'']}}'
+        - '{{$.inputs.parameters[''yolo_model_name'']}}'
+        - '{{$.outputs.artifacts[''model_output''].path}}'
+        - '{{$.outputs.artifacts[''data_yaml''].path}}'
+        command:
+        - bash
+        - -c
+        image: python:3.11-slim
+    exec-validate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - validate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'minio' 'tqdm'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef validate_model(\n        data_yaml: Input[Artifact],\n      \
+          \  model: Input[Model],\n        metrics: Output[Metrics]\n):\n    from\
+          \ ultralytics import YOLO\n    import os\n\n    # Print paths for debugging\n\
+          \    print(f\"Data YAML path: {data_yaml.path}\")\n    print(f\"Model path:\
+          \ {model.path}\")\n\n    # Load the trained model\n    model_path = os.path.join(model.path,\
+          \ \"best.pt\")\n    print(f\"Loading model from: {model_path}\")\n    model\
+          \ = YOLO(model_path)\n\n    # Run validation using the existing data.yaml\n\
+          \    validation_results = model.val(\n        data=os.path.join(data_yaml.path,\
+          \ \"data.yaml\"),\n        imgsz=640,\n        batch=1,\n        verbose=True\n\
+          \    )\n\n    # Log metrics\n    metrics.log_metric(\"map50-95\", validation_results.box.map)\n\
+          \    metrics.log_metric(\"map50\", validation_results.box.map50)\n    metrics.log_metric(\"\
+          map75\", validation_results.box.map75)\n\n"
+        image: ultralytics/ultralytics:8.3.56-cpu
+pipelineInfo:
+  description: YOLO Object Detection Pipeline
+  name: yolo-object-detection-pipeline
+root:
+  dag:
+    tasks:
+      createpvc:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-createpvc
+        inputs:
+          parameters:
+            access_modes:
+              runtimeValue:
+                constant:
+                - ReadWriteOnce
+            pvc_name:
+              runtimeValue:
+                constant: yolo-pipeline-pvc
+            size:
+              runtimeValue:
+                constant: 1Gi
+            storage_class_name:
+              runtimeValue:
+                constant: local-path
+        taskInfo:
+          name: createpvc
+      deletepvc:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-deletepvc
+        dependentTasks:
+        - validate-model
+        inputs:
+          parameters:
+            pvc_name:
+              runtimeValue:
+                constant: yolo-pipeline-pvc
+        taskInfo:
+          name: deletepvc
+      download-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-dataset
+        taskInfo:
+          name: download-dataset
+      split-dataset:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-split-dataset
+        dependentTasks:
+        - download-dataset
+        inputs:
+          parameters:
+            random_state:
+              componentInputParameter: random_state
+        taskInfo:
+          name: split-dataset
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - split-dataset
+        inputs:
+          parameters:
+            batch:
+              componentInputParameter: batch
+            epochs:
+              componentInputParameter: epochs
+            yolo_model_name:
+              componentInputParameter: yolo_model_name
+        taskInfo:
+          name: train-model
+      validate-model:
+        cachingOptions: {}
+        componentRef:
+          name: comp-validate-model
+        dependentTasks:
+        - train-model
+        inputs:
+          artifacts:
+            data_yaml:
+              taskOutputArtifact:
+                outputArtifactKey: data_yaml
+                producerTask: train-model
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model_output
+                producerTask: train-model
+        taskInfo:
+          name: validate-model
+  inputDefinitions:
+    parameters:
+      batch:
+        defaultValue: 8.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      epochs:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      random_state:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      yolo_model_name:
+        defaultValue: yolov8n_custom
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.11.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-download-dataset:
+          pvcMount:
+          - constant: yolo-pipeline-pvc
+            mountPath: /data
+        exec-split-dataset:
+          pvcMount:
+          - constant: yolo-pipeline-pvc
+            mountPath: /data
+        exec-train-model:
+          pvcMount:
+          - constant: yolo-pipeline-pvc
+            mountPath: /data
+        exec-validate-model:
+          pvcMount:
+          - constant: yolo-pipeline-pvc
+            mountPath: /data

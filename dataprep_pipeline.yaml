@@ -26,14 +26,6 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
-  comp-output-file-contents-2:
-    executorLabel: exec-output-file-contents-2
-    inputDefinitions:
-      artifacts:
-        dataset:
-          artifactType:
-            schemaTitle: system.Dataset
-            schemaVersion: 0.0.1
   comp-split-dataset:
     executorLabel: exec-split-dataset
     inputDefinitions:
@@ -47,11 +39,15 @@ components:
           parameterType: NUMBER_INTEGER
     outputDefinitions:
       artifacts:
-        x_val_output:
+        test_dataset:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
-        y_val_output:
+        train_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        validation_dataset:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
@@ -124,47 +120,13 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef output_file_contents(dataset: Input[Dataset]):\n    import os\n\
-          \n    def list_files(startpath):\n        for root, dirs, files in os.walk(startpath):\n\
-          \            level = root.replace(startpath, '').count(os.sep)\n       \
-          \     indent = ' ' * 4 * (level)\n            print(f'{indent}{os.path.basename(root)}/')\n\
-          \            subindent = ' ' * 4 * (level + 1)\n            for f in files:\n\
-          \                print(f'{subindent}{f}')\n\n    print(f\"Contents of {dataset.path}:\"\
+          \n    def list_files(start_path):\n        for root, dirs, files in os.walk(start_path):\n\
+          \            level = root.replace(start_path, '').count(os.sep)\n      \
+          \      indent = ' ' * 4 * (level)\n            print(f'{indent}{os.path.basename(root)}/')\n\
+          \            sub_indent = ' ' * 4 * (level + 1)\n            for f in files:\n\
+          \                print(f'{sub_indent}{f}')\n\n    print(f\"Contents of {dataset.path}:\"\
           )\n    list_files(dataset.path)\n\n"
-        image: python:3.10
-    exec-output-file-contents-2:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - output_file_contents
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.11.0'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef output_file_contents(dataset: Input[Dataset]):\n    import os\n\
-          \n    def list_files(startpath):\n        for root, dirs, files in os.walk(startpath):\n\
-          \            level = root.replace(startpath, '').count(os.sep)\n       \
-          \     indent = ' ' * 4 * (level)\n            print(f'{indent}{os.path.basename(root)}/')\n\
-          \            subindent = ' ' * 4 * (level + 1)\n            for f in files:\n\
-          \                print(f'{subindent}{f}')\n\n    print(f\"Contents of {dataset.path}:\"\
-          )\n    list_files(dataset.path)\n\n"
-        image: python:3.10
+        image: python:3.9
     exec-split-dataset:
       container:
         args:
@@ -193,12 +155,14 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef split_dataset(\n        random_state: int,\n        input_dataset:\
-          \ Input[Dataset],\n        x_val_output: Output[Dataset],\n        y_val_output:\
+          \ Input[Dataset],\n        train_dataset: Output[Dataset],  # Changed output\
+          \ names\n        validation_dataset: Output[Dataset],\n        test_dataset:\
           \ Output[Dataset]\n):\n    import os\n    import glob\n    import shutil\n\
-          \    from sklearn.model_selection import train_test_split\n\n    # Adjust\
-          \ paths to use input_dataset.path\n    images = list(glob.glob(os.path.join(input_dataset.path,\
-          \ \"DATASET\", \"DATA\", \"images\", \"**\")))\n    labels = list(glob.glob(os.path.join(input_dataset.path,\
-          \ \"DATASET\", \"DATA\", \"labels\", \"**\")))\n\n    train_ratio = 0.75\n\
+          \    from sklearn.model_selection import train_test_split\n\n    BASE_PATH\
+          \ = \"MINIDATA\"\n    # BASE_PATH = \"DATA\"\n\n    # Adjust paths to use\
+          \ input_dataset.path\n    images = list(glob.glob(os.path.join(input_dataset.path,\
+          \ \"DATASET\", BASE_PATH, \"images\", \"**\")))\n    labels = list(glob.glob(os.path.join(input_dataset.path,\
+          \ \"DATASET\", BASE_PATH, \"labels\", \"**\")))\n\n    train_ratio = 0.75\n\
           \    validation_ratio = 0.15\n    test_ratio = 0.10\n\n    # train is now\
           \ 75% of the entire data set\n    x_train, x_test, y_train, y_test = train_test_split(\n\
           \        images,\n        labels,\n        test_size=1 - train_ratio,\n\
@@ -206,15 +170,17 @@ deploymentSpec:
           \ initial data set\n    # validation is now 15% of the initial data set\n\
           \    x_val, x_test, y_val, y_test = train_test_split(\n        x_test,\n\
           \        y_test,\n        test_size=test_ratio / (test_ratio + validation_ratio),\n\
-          \        random_state=random_state\n    )\n\n    # Create output directories\n\
-          \    os.makedirs(os.path.join(x_val_output.path, \"images\"), exist_ok=True)\n\
-          \    os.makedirs(os.path.join(y_val_output.path, \"labels\"), exist_ok=True)\n\
-          \n    def move_files(files, output_path, category):\n        for source_file\
-          \ in files:\n            src = source_file.strip()\n            dest = os.path.join(output_path,\
-          \ category, os.path.basename(source_file))\n            shutil.copy2(src,\
-          \ dest)  # Using copy2 instead of move to preserve original files\n\n  \
-          \  # Move validation files to output locations\n    move_files(x_val, x_val_output.path,\
-          \ \"images\")\n    move_files(y_val, y_val_output.path, \"labels\")\n\n"
+          \        random_state=random_state\n    )\n\n    # Create output directories\
+          \ for each split\n    for dataset_output, x_files, y_files in [\n      \
+          \  (train_dataset, x_train, y_train),\n        (validation_dataset, x_val,\
+          \ y_val),\n        (test_dataset, x_test, y_test)\n    ]:\n        os.makedirs(os.path.join(dataset_output.path,\
+          \ \"images\"), exist_ok=True)\n        os.makedirs(os.path.join(dataset_output.path,\
+          \ \"labels\"), exist_ok=True)\n\n        # Move files\n        for src in\
+          \ x_files:\n            dest = os.path.join(dataset_output.path, \"images\"\
+          , os.path.basename(src))\n            shutil.copy2(src, dest)\n\n      \
+          \  for src in y_files:\n            dest = os.path.join(dataset_output.path,\
+          \ \"labels\", os.path.basename(src))\n            shutil.copy2(src, dest)\n\
+          \n"
         image: python:3.11
 pipelineInfo:
   description: Pipeline for preparing and splitting dataset
@@ -240,25 +206,10 @@ root:
           artifacts:
             dataset:
               taskOutputArtifact:
-                outputArtifactKey: x_val_output
+                outputArtifactKey: train_dataset
                 producerTask: split-dataset
         taskInfo:
           name: output-file-contents
-      output-file-contents-2:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-output-file-contents-2
-        dependentTasks:
-        - split-dataset
-        inputs:
-          artifacts:
-            dataset:
-              taskOutputArtifact:
-                outputArtifactKey: y_val_output
-                producerTask: split-dataset
-        taskInfo:
-          name: output-file-contents-2
       split-dataset:
         cachingOptions:
           enableCache: true
